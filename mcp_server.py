@@ -234,7 +234,16 @@ def get_loop_round(round_number: int) -> dict[str, Any]:
     job = load_loop_state()
     for item in job.get("rounds", []):
         if isinstance(item, dict) and item.get("number") == round_number:
-            return {"jobId": job.get("id"), **item}
+            return {
+                "jobId": job.get("id"),
+                "number": item.get("number"),
+                "status": item.get("status"),
+                "summary": item.get("summary", ""),
+                "analyses": item.get("analyses", []),
+                "changes": item.get("changes", []),
+                "tests": item.get("tests"),
+                "commit": item.get("commit"),
+            }
     raise ValueError(f"Loop round not found: {round_number}")
 
 
