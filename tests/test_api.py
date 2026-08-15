@@ -91,7 +91,7 @@ class ApiTests(unittest.TestCase):
     def test_post_requires_code_browser_header(self) -> None:
         status, _, body = self.request("POST", "/api/read-only", {"readOnly": False})
         self.assertEqual(status, 403)
-        self.assertIn("Code Browser", body["error"])
+        self.assertEqual(body["error"], "This POST request did not originate from the Code Browser interface")
 
         status, _, body = self.request(
             "POST",
@@ -102,11 +102,22 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertFalse(body["readOnly"])
 
+    def test_root_validation_error_is_english(self) -> None:
+        status, _, body = self.request(
+            "POST",
+            "/api/root",
+            {"path": ""},
+            {server.POST_REQUEST_HEADER: server.POST_REQUEST_HEADER_VALUE},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(body["error"], "A directory is required")
+
     def test_file_endpoint_rejects_parent_and_symlink_escape(self) -> None:
         for path in ("/api/file?path=../outside.py", "/api/file?path=escape.py"):
             with self.subTest(path=path):
-                status, _, _ = self.request("GET", path)
+                status, _, body = self.request("GET", path)
                 self.assertEqual(status, 403)
+                self.assertEqual(body["error"], "Paths outside the browsing root cannot be accessed")
 
     def test_concurrent_mcp_state_updates_leave_valid_json(self) -> None:
         statuses: list[int] = []

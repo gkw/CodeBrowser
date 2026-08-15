@@ -168,6 +168,10 @@ def load_env_file(path: Path) -> None:
 load_env_file(APP_DIR / ".env")
 
 
+class OutsideRootError(PermissionError):
+    """Raised when a requested path escapes the active browsing root."""
+
+
 class CodeBrowserServer(ThreadingHTTPServer):
     daemon_threads = True
 
@@ -190,7 +194,7 @@ class CodeBrowserServer(ThreadingHTTPServer):
             root = self._root
             candidate = (root / relative).resolve()
             if candidate != root and root not in candidate.parents:
-                raise PermissionError("閲覧ルート外のパスにはアクセスできません")
+                raise OutsideRootError("Paths outside the browsing root cannot be accessed")
             return candidate, root
 
     @property
@@ -280,14 +284,16 @@ class RequestHandler(BaseHTTPRequestHandler):
                 self.send_error_json(404, "Not found")
         except (BrokenPipeError, ConnectionResetError) as exc:
             self.log_error("client disconnected during GET %s: %s", parsed.path, exc)
+        except OutsideRootError as exc:
+            self.send_error_json(403, str(exc))
         except PermissionError as exc:
             self.send_error_json(403, str(exc))
         except ValueError as exc:
             self.send_error_json(400, str(exc))
         except FileNotFoundError:
-            self.send_error_json(404, "ファイルまたはフォルダが見つかりません")
+            self.send_error_json(404, "File or folder not found")
         except OSError as exc:
-            self.send_error_json(500, f"読み込みに失敗しました: {exc}")
+            self.send_error_json(500, f"Read failed: {exc}")
 
     def do_POST(self) -> None:
         endpoint = urlparse(self.path).path
@@ -295,13 +301,13 @@ class RequestHandler(BaseHTTPRequestHandler):
             self.send_error_json(404, "Not found")
             return
         if self.headers.get(POST_REQUEST_HEADER) != POST_REQUEST_HEADER_VALUE:
-            self.send_error_json(403, "このPOSTリクエストはCode Browser画面から送信されていません")
+            self.send_error_json(403, "This POST request did not originate from the Code Browser interface")
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
             max_length = 4_000_000 if endpoint == "/api/mcp-state" else 32_768 if endpoint in {"/api/root", "/api/git/commit", "/api/read-only", "/api/loop/start", "/api/loop/cancel"} else 500_000 if endpoint == "/api/project-summary" else MAX_FILE_BYTES * 2
             if length <= 0 or length > max_length:
-                raise ValueError("リクエストサイズが不正です")
+                raise ValueError("Invalid request size")
             payload = json.loads(self.rfile.read(length))
             if endpoint == "/api/root":
                 self.handle_change_root(payload)
@@ -324,31 +330,33 @@ class RequestHandler(BaseHTTPRequestHandler):
                 self.handle_analyze(payload)
         except (ValueError, json.JSONDecodeError, KeyError) as exc:
             self.send_error_json(400, str(exc))
+        except OutsideRootError as exc:
+            self.send_error_json(403, str(exc))
         except PermissionError as exc:
             self.send_error_json(403, str(exc))
         except FileNotFoundError:
-            self.send_error_json(404, "ファイルが見つかりません")
+            self.send_error_json(404, "File not found")
         except (BrokenPipeError, ConnectionResetError) as exc:
             self.log_error("client disconnected during POST %s: %s", endpoint, exc)
         except ConnectionError as exc:
-            self.send_json(503, {"error": "Ollama に接続できません", "detail": str(exc)})
+            self.send_json(503, {"error": "Could not connect to Ollama", "detail": str(exc)})
         except OSError as exc:
-            self.send_error_json(500, f"処理に失敗しました: {exc}")
+            self.send_error_json(500, f"Operation failed: {exc}")
 
     def handle_change_root(self, payload: dict) -> None:
         raw_path = str(payload.get("path", "")).strip()
         if not raw_path:
-            raise ValueError("ディレクトリを指定してください")
+            raise ValueError("A directory is required")
         new_root = Path(raw_path).expanduser()
         if not new_root.is_absolute():
-            raise ValueError("絶対パスで指定してください")
+            raise ValueError("The directory must be an absolute path")
         new_root = new_root.resolve()
         if not new_root.exists():
             raise FileNotFoundError
         if not new_root.is_dir():
-            raise ValueError("指定されたパスはディレクトリではありません")
+            raise ValueError("The selected path is not a directory")
         if not os.access(new_root, os.R_OK | os.X_OK):
-            raise PermissionError("このディレクトリを読み取る権限がありません")
+            raise PermissionError("The selected directory is not readable")
         self.server.change_root(new_root)
         self.send_json(200, {
             "root": str(new_root),
@@ -361,7 +369,7 @@ class RequestHandler(BaseHTTPRequestHandler):
     def handle_read_only(self, payload: dict) -> None:
         value = payload.get("readOnly")
         if not isinstance(value, bool):
-            raise ValueError("readOnly は真偽値で指定してください")
+            raise ValueError("readOnly must be a boolean")
         self.server.read_only = value
         self.send_json(200, {"readOnly": self.server.read_only})
 
@@ -371,7 +379,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         analyses = payload.get("analyses", [])
         current = payload.get("current", {})
         if not isinstance(pinned, list) or not isinstance(analyses, list) or not isinstance(current, dict):
-            raise ValueError("MCP同期データの形式が不正です")
+            raise ValueError("Invalid MCP synchronization data")
 
         clean_pinned: list[str] = []
         for value in pinned[:30]:
@@ -420,7 +428,7 @@ class RequestHandler(BaseHTTPRequestHandler):
 
     def handle_loop_start(self, payload: dict) -> None:
         if self.server.read_only:
-            self.send_error_json(423, "READ ONLYを解除してからLoopを開始してください")
+            self.send_error_json(423, "Disable READ ONLY before starting Loop")
             return
         result = self.server.loop_manager.start(payload)
         self.send_json(202, result)
@@ -436,7 +444,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                 key=lambda p: (not p.is_dir(), p.name.casefold()),
             )
         except PermissionError:
-            self.send_error_json(403, "このフォルダを読み取れません")
+            self.send_error_json(403, "This folder cannot be read")
             return
         for child in children[:1000]:
             if child.name in IGNORED_NAMES or child.name.startswith(".git"):
@@ -463,11 +471,11 @@ class RequestHandler(BaseHTTPRequestHandler):
             raise FileNotFoundError
         size = path.stat().st_size
         if size > MAX_FILE_BYTES:
-            self.send_error_json(413, f"ファイルが大きすぎます（上限 {MAX_FILE_BYTES // 1_000_000:.1f} MB）")
+            self.send_error_json(413, f"File is too large (limit: {MAX_FILE_BYTES // 1_000_000:.1f} MB)")
             return
         raw = path.read_bytes()
         if is_probably_binary(raw):
-            self.send_error_json(415, "バイナリファイルは表示できません")
+            self.send_error_json(415, "Binary files cannot be displayed")
             return
         try:
             content = raw.decode("utf-8")
@@ -487,7 +495,7 @@ class RequestHandler(BaseHTTPRequestHandler):
 
     def handle_save_file(self, payload: dict) -> None:
         if self.server.read_only:
-            self.send_error_json(423, "READ ONLY モードではファイルを保存できません")
+            self.send_error_json(423, "Files cannot be saved while READ ONLY is enabled")
             return
         relative = str(payload.get("path", ""))
         content = str(payload.get("content", ""))
@@ -497,11 +505,11 @@ class RequestHandler(BaseHTTPRequestHandler):
             raise FileNotFoundError
         current = path.read_bytes()
         if expected and hashlib.sha256(current).hexdigest() != expected:
-            self.send_error_json(409, "ファイルが外部で変更されています。再読み込みしてから編集してください")
+            self.send_error_json(409, "The file changed externally; reload it before editing")
             return
         encoded = content.encode("utf-8")
         if len(encoded) > MAX_FILE_BYTES:
-            self.send_error_json(413, "保存内容がファイルサイズ上限を超えています")
+            self.send_error_json(413, "The saved content exceeds the file-size limit")
             return
         mode = path.stat().st_mode
         temporary_name = ""
@@ -526,17 +534,17 @@ class RequestHandler(BaseHTTPRequestHandler):
 
     def handle_git_commit(self, payload: dict) -> None:
         if self.server.read_only:
-            self.send_error_json(423, "READ ONLY モードではGitコミットできません")
+            self.send_error_json(423, "Git commits are disabled while READ ONLY is enabled")
             return
         path = self.server.safe_path(str(payload.get("path", "")))
         message = str(payload.get("message", "")).strip()
         if not path.is_file():
             raise FileNotFoundError
         if not message or len(message) > 240:
-            raise ValueError("コミットメッセージを1〜240文字で入力してください")
+            raise ValueError("Enter a commit message between 1 and 240 characters")
         info = git_file_info(path)
         if not info:
-            raise ValueError("このファイルはGitリポジトリ内にありません")
+            raise ValueError("This file is not inside a Git repository")
         repository = Path(info["repoRoot"])
         relative = path.relative_to(repository).as_posix()
         run_git(repository, ["add", "--", relative])
@@ -546,10 +554,10 @@ class RequestHandler(BaseHTTPRequestHandler):
     def handle_resolve_reference(self, reference: str, current: str) -> None:
         reference = reference.strip().strip("`'\"")
         if not reference or len(reference) > 300:
-            raise ValueError("参照名が不正です")
+            raise ValueError("Invalid reference name")
         result = resolve_code_reference(self.server.root, reference, current)
         if not result:
-            self.send_error_json(404, "参照先が見つかりません")
+            self.send_error_json(404, "Reference not found")
             return
         self.send_json(200, result)
 
@@ -560,7 +568,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         try:
             host, models = self.probe_ollama()
         except ConnectionError as exc:
-            self.send_json(503, {"error": "Ollama に接続できません", "detail": str(exc)})
+            self.send_json(503, {"error": "Could not connect to Ollama", "detail": str(exc)})
             return
         names = allowed_model_names(host, models)
         preferred = choose_model(names)
@@ -722,16 +730,16 @@ class RequestHandler(BaseHTTPRequestHandler):
         content = raw.decode("utf-8", errors="replace")
         target = selection.strip() or content
         if not target:
-            raise ValueError("解析するコードがありません")
+            raise ValueError("No code is available to analyze")
         if len(target) > 120_000:
-            target = target[:120_000] + "\n\n[以降はサイズ制限のため省略]"
+            target = target[:120_000] + "\n\n[Remaining content omitted due to the size limit]"
 
         host, models = self.probe_ollama()
         available = allowed_model_names(host, models)
         if not model or model not in available:
             model = choose_model(available)
         if not model:
-            raise ValueError("利用可能な Ollama モデルがありません")
+            raise ValueError("No Ollama models are available")
 
         instructions = ({
             "summary": "Summarize the code's purpose, main structure, inputs, outputs, and dependencies concisely.",
@@ -1242,10 +1250,10 @@ def parse_loop_changes(text: str) -> dict:
     except json.JSONDecodeError:
         start, end = clean.find("{"), clean.rfind("}")
         if start < 0 or end <= start:
-            raise ValueError("統合モデルが有効なJSONを返しませんでした")
+            raise ValueError("The integration model did not return valid JSON")
         value = json.loads(clean[start:end + 1])
     if not isinstance(value, dict) or not isinstance(value.get("changes", []), list):
-        raise ValueError("統合モデルの変更形式が不正です")
+        raise ValueError("The integration model returned an invalid change format")
     return value
 
 
@@ -1564,7 +1572,7 @@ def ollama_headers(host: str, headers: dict[str, str] | None = None) -> dict[str
     if host == OLLAMA_CLOUD_HOST:
         api_key = os.environ.get("OLLAMA_API_KEY")
         if not api_key:
-            raise ConnectionError("Ollama Cloud を直接使うには OLLAMA_API_KEY が必要です")
+            raise ConnectionError("OLLAMA_API_KEY is required to use Ollama Cloud directly")
         result["Authorization"] = f"Bearer {api_key}"
     return result
 
@@ -1648,13 +1656,13 @@ def choose_model(names: list[str]) -> str | None:
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     parser = argparse.ArgumentParser(description="Ollama Code Browser")
-    parser.add_argument("root", nargs="?", default=os.getcwd(), help="閲覧するプロジェクトのルート")
-    parser.add_argument("--host", default="127.0.0.1", help="待受ホスト")
-    parser.add_argument("--port", type=int, default=8092, help="待受ポート")
+    parser.add_argument("root", nargs="?", default=os.getcwd(), help="project root to browse")
+    parser.add_argument("--host", default="127.0.0.1", help="listening host")
+    parser.add_argument("--port", type=int, default=8092, help="listening port")
     args = parser.parse_args()
     root = Path(args.root).expanduser().resolve()
     if not root.is_dir():
-        parser.error(f"フォルダが見つかりません: {root}")
+        parser.error(f"folder not found: {root}")
     server = CodeBrowserServer((args.host, args.port), root)
     LOGGER.info("listening=http://%s:%s root=%s", args.host, args.port, root)
     try:
