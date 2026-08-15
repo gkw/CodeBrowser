@@ -81,8 +81,8 @@ const translations = {
     currentProject: '開いている',
     projectOperations: 'プロジェクト操作',
     projectPinned: name => `${name} を固定しました`, projectUnpinned: name => `${name} の固定を解除しました`,
-    loop: 'Loop ×3', stopLoop: '停止', loopReadOnly: 'Loopを開始するにはREAD ONLYを解除してください',
-    loopConfirm: target => `${target} を最大3ラウンド自動解析・修正します。Git未管理の場合はローカルリポジトリを初期化し、専用ブランチとラウンド別コミットを作成します（pushはしません）。開始しますか？`,
+    loop: 'Loop ×3 · Python', stopLoop: '停止', loopReadOnly: 'Loopを開始するにはREAD ONLYを解除してください',
+    loopConfirm: target => `${target} のPython（.py）ファイルだけを最大3ラウンド自動解析・修正します。Git未管理の場合はローカルリポジトリを初期化し、専用ブランチとラウンド別コミットを作成します（pushはしません）。開始しますか？`,
     loopStarting: 'Loopを開始しています…', loopFailed: 'Loopの開始に失敗しました', loopProject: 'このプロジェクトでLoop ×3', loopFile: 'このファイルでLoop ×3',
     loopSummary: 'Loop統合結果', loopRound: n => `Round ${n}`,
     loopOutcome: '終了結果',
@@ -140,8 +140,8 @@ const translations = {
     currentProject: 'OPEN',
     projectOperations: 'Project actions',
     projectPinned: name => `Pinned ${name}`, projectUnpinned: name => `Unpinned ${name}`,
-    loop: 'Loop ×3', stopLoop: 'Stop', loopReadOnly: 'Turn off READ ONLY before starting Loop',
-    loopConfirm: target => `Automatically analyze and modify ${target} for up to 3 rounds. If needed, a local Git repository will be initialized, then a dedicated branch and one commit per round will be created. Nothing is pushed. Start?`,
+    loop: 'Loop ×3 · Python', stopLoop: 'Stop', loopReadOnly: 'Turn off READ ONLY before starting Loop',
+    loopConfirm: target => `Automatically analyze and modify only Python (.py) files in ${target} for up to 3 rounds. If needed, a local Git repository will be initialized, then a dedicated branch and one commit per round will be created. Nothing is pushed. Start?`,
     loopStarting: 'Starting Loop…', loopFailed: 'Could not start Loop', loopProject: 'Run Loop ×3 on this project', loopFile: 'Run Loop ×3 on this file',
     loopSummary: 'Loop combined result', loopRound: n => `Round ${n}`,
     loopOutcome: 'Outcome',
@@ -1120,6 +1120,7 @@ function showTreeContextMenu(event, item, row) {
   event.stopPropagation();
   const menu = $('#treeContextMenu');
   const isDirectory = item.type === 'directory';
+  const isPythonFile = !isDirectory && item.name.toLowerCase().endsWith('.py');
   const projectPath = isDirectory ? absoluteProjectPath(item.path) : '';
   const projectPinned = Boolean(projectPath && state.pinnedProjects.includes(projectPath));
   menu.innerHTML = `
@@ -1132,7 +1133,7 @@ function showTreeContextMenu(event, item, row) {
       <button role="menuitem" data-menu-action="project-improve"><span class="menu-icon">⇧</span>${t('projectImprove')}</button>
     ` : `
       <button role="menuitem" data-menu-action="open"><span class="menu-icon">↗</span>${t('open')}</button>
-      <button role="menuitem" data-menu-action="loop-file"><span class="menu-icon">↻</span>${t('loopFile')}</button>
+      ${isPythonFile ? `<button role="menuitem" data-menu-action="loop-file"><span class="menu-icon">↻</span>${t('loopFile')}</button>` : ''}
       <div class="menu-separator"></div>
       <button role="menuitem" data-menu-action="summary"><span class="menu-icon">≡</span>${t('summary')}</button>
       <button role="menuitem" data-menu-action="explain"><span class="menu-icon">◎</span>${t('explain')}</button>

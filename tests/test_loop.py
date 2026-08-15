@@ -32,6 +32,27 @@ class DummyServer:
 
 
 class LoopManagerTests(unittest.TestCase):
+    def test_loop_snapshot_includes_only_python_files(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "sample.py").write_text("value = 1\n", encoding="utf-8")
+            (root / "sample.js").write_text("const value = 1;\n", encoding="utf-8")
+            snapshot, hashes = server.build_loop_snapshot(root, root)
+            self.assertIn("sample.py", hashes)
+            self.assertNotIn("sample.js", hashes)
+            self.assertIn("Editable full file: sample.py", snapshot)
+            self.assertNotIn("Editable full file: sample.js", snapshot)
+
+    def test_non_python_file_loop_is_rejected_before_git_initialization(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "sample.js").write_text("const value = 1;\n", encoding="utf-8")
+            with patch.object(server, "LOOP_STATE_PATH", root / "loop-state.json"):
+                manager = server.LoopManager(DummyServer(root))
+                with self.assertRaisesRegex(ValueError, r"Python \(\.py\) files only"):
+                    manager.start({"path": "sample.js", "targetType": "file", "language": "en"})
+            self.assertFalse((root / ".git").exists())
+
     def test_unittest_project_uses_stdlib_runner(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

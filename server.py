@@ -42,6 +42,7 @@ OLLAMA_HOSTS = [
 OLLAMA_CLOUD_HOST = "https://ollama.com"
 LOCAL_CLOUD_SUFFIX = ":cloud"
 PAID_CLOUD_MODELS = {"kimi-k3"}
+LOOP_SOURCE_SUFFIXES = {".py"}
 LOCAL_REPOSITORY_EXCLUDES = """# Ollama Code Browser: local-only safety exclusions
 .env
 .env.*
@@ -938,6 +939,7 @@ def resolve_code_reference(root: Path, reference: str, current: str = "") -> dic
 
 
 def iter_source_files(root: Path, include_all_text: bool = False):
+    root = root.resolve()
     count = 0
     for directory, dirnames, filenames in os.walk(root):
         dirnames[:] = [name for name in dirnames if name not in IGNORED_NAMES and not name.startswith(".git")]
@@ -1120,8 +1122,10 @@ def call_ollama_text(host: str, model: str, messages: list[dict[str, str]], *, j
 
 
 def build_loop_snapshot(target: Path, repository: Path) -> tuple[str, dict[str, str]]:
+    target = target.resolve()
+    repository = repository.resolve()
     candidates = [target] if target.is_file() else list(iter_source_files(target))
-    candidates = [path for path in candidates if path.is_file()]
+    candidates = [path for path in candidates if path.is_file() and path.suffix.lower() in LOOP_SOURCE_SUFFIXES]
     candidates.sort(key=lambda path: (len(path.relative_to(repository).parts), path.as_posix().casefold()))
     hashes: dict[str, str] = {}
     sections = [build_project_snapshot(target if target.is_dir() else target.parent, max_depth=3, max_entries=500)]
@@ -1170,22 +1174,12 @@ def parse_loop_changes(text: str) -> dict:
 
 
 def detected_test_command(repository: Path) -> list[str] | None:
-    package_json = repository / "package.json"
-    if package_json.is_file():
-        try:
-            package = json.loads(package_json.read_text(encoding="utf-8"))
-            if isinstance(package.get("scripts"), dict) and package["scripts"].get("test"):
-                return ["npm", "test"]
-        except (OSError, json.JSONDecodeError):
-            pass
     python = repository / ".venv" / "bin" / "python"
     python_command = str(python) if python.is_file() else "python3"
     if (repository / "pyproject.toml").is_file() or (repository / "pytest.ini").is_file():
         return [python_command, "-m", "pytest"]
     if (repository / "tests").is_dir():
         return [python_command, "-m", "unittest", "discover", "-s", "tests"]
-    if (repository / "go.mod").is_file():
-        return ["go", "test", "./..."]
     return None
 
 
@@ -1254,8 +1248,12 @@ class LoopManager:
         target = self.server.safe_path(relative)
         if target_type == "file" and not target.is_file():
             raise ValueError(loop_text(language, "ファイルLoopの対象がファイルではありません", "The file Loop target is not a file"))
+        if target_type == "file" and target.suffix.lower() not in LOOP_SOURCE_SUFFIXES:
+            raise ValueError(loop_text(language, "Loopは現在Python（.py）ファイルだけに対応しています", "Loop currently supports Python (.py) files only"))
         if target_type == "project" and not target.is_dir():
             raise ValueError(loop_text(language, "プロジェクトLoopの対象がディレクトリではありません", "The project Loop target is not a directory"))
+        if target_type == "project" and not any(path.suffix.lower() in LOOP_SOURCE_SUFFIXES for path in iter_source_files(target)):
+            raise ValueError(loop_text(language, "Python（.py）ファイルがないためLoopを開始できません", "Loop cannot start because the project contains no Python (.py) files"))
         repository = find_git_root(target)
         repository_initialized = False
         if not repository:
@@ -1328,7 +1326,7 @@ class LoopManager:
                     self.job["message"] = loop_text(language, f"Round {round_number}: {len(models)}モデルで解析中", f"Round {round_number}: analyzing with {len(models)} models")
                     self._save()
                 review_prompt = (
-                    f"This is automated improvement round {round_number} of {maximum_rounds}. "
+                    f"This is automated Python-only improvement round {round_number} of {maximum_rounds}. "
                     "Review only the supplied complete editable files. Identify high-confidence correctness, security, maintainability, or testability improvements that can be implemented now. "
                     f"Be concise, cite exact paths, do not suggest changes to truncated or absent files, and respond in {'English' if language == 'en' else 'Japanese'}.\n\n" + snapshot
                 )
