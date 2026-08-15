@@ -1,104 +1,106 @@
 # Ollama Code Browser
 
-Cursor の File Browser に近い3ペイン構成で、プロジェクト内のコードを閲覧・編集し、Ollama に要約・解説・レビュー・自由質問を依頼できるローカルWebアプリです。
+Ollama Code Browser is a local, file-browser-first web application for reading and editing project code with Ollama assistance. Its three-pane layout keeps the project tree and source code visible while you request summaries, detailed explanations, reviews, improvement ideas, or answers to free-form questions.
 
-## 起動
+## Start the application
 
 ```bash
 cd /path/to/CodeBrowser
 ./start.sh /path/to/your/project
 ```
 
-ブラウザで <http://127.0.0.1:8092> を開きます。ポートを変える場合は次のように起動します。
+Open <http://127.0.0.1:8092> in a browser. To use a different port:
 
 ```bash
 PORT=9000 ./start.sh /path/to/your/project
 ```
 
-Python 3 の標準ライブラリだけで動作するため、パッケージのインストールは不要です。
+The main application uses only the Python 3 standard library, so no package installation is required.
 
-起動後は上部の `フォルダを開く` ボタンから、別のディレクトリへ切り替えられます。ローカルディレクトリの絶対パスを入力してください。切り替え後も、指定した新しいルートの外側は閲覧できません。
+After startup, select **Open Folder** in the header to switch to another directory. Enter an absolute path to a local directory. After the switch, the application continues to prevent access outside the newly selected root.
 
-## 主な機能
+## Features
 
-- フォルダを遅延読み込みするファイルツリー
-- Web画面の「フォルダを開く」から閲覧ルートを切り替え
-- ディレクトリの右クリック（モバイルは「…」）からプロジェクトを固定し、ピン一覧の右クリックから開く・構成要約・改善・Loop・パスコピー・固定解除を実行
-- 右クリックまたは「…」メニューからプロジェクト構成を要約
-- OLLAMA ASSISTANTの左端をドラッグして横幅を変更・保存
-- ファイルの右クリックから要約・詳しい解説・レビューを直接実行
-- フォルダの右クリックから配下のプロジェクト構成を要約
-- Explorer上部またはフォルダの右クリックから、プロジェクト全体を複数モデルで改善レビュー
-- `Loop ×3`で複数モデル解析・統合・修正・テストを最大3ラウンド自動実行
-- モバイルでは下部タブでファイル・コード・AIを切り替え
-- モバイルの「…」メニューから要約・解説・レビューを実行
-- 日本語・EnglishのUIとOllama回答言語を切り替え
-- ファイルブラウザ上部の「↑」で親ディレクトリへ移動
-- OLLAMA ASSISTANTを全画面表示し、Escで元に戻す
-- 要約・解説・レビューの履歴を最大8件のタブで保持
-- IndexedDBへ解析タブ・生成内容・選択タブ・最後に開いたファイルを保存し、リロード後に復元
-- 最大8件の要約をタブ単位で同時実行
-- 「改善点」ボタンで最大3モデルを同時実行し、モデル別タブで提案を比較
-- 改善点の実行単位をグループ化し、先頭の「統合結果」タブで合意点・相違点・優先順位・実装計画を提示
-- 複数モデル検証中の重複実行を防止
-- Ollama Cloudでは追加料金対象の `kimi-k3` だけを一覧・自動検証から除外
-- OLLAMA ASSISTANT内のファイル名・関数名をリンク化し、該当コードの行をマーカー表示
-- テキストコードの表示、行番号、言語・行数・サイズ表示
-- 開いているファイルの絶対パス表示、ツールチップ、ワンクリックコピー
-- 画面上部のグローバル `READ ONLY` ロック（初期状態はON、保存とGit操作をサーバー側でも拒否）
-- UTF-8ソースの編集、外部変更との競合検知、アトミック保存（`⌘S` / `Ctrl+S`対応）
-- Gitブランチ・対象ファイルの変更状態表示と、そのファイルだけの明示的なコミット
-- ファイル名フィルター（`⌘K` / `Ctrl+K`）
-- ファイル全体またはブラウザで選択したコード範囲の解析
-- 要約、詳しい解説、コードレビュー、自由質問
-- Ollama のストリーミング回答とモデル選択
-- 解析結果をメタデータ付き Markdown（`.md`）として直接保存
-- 日本語対応の印刷レイアウトから PDF として保存
-- `.git`、`node_modules`、仮想環境、ビルド成果物などの除外
-- 起動時に指定したルート外へのアクセスを防ぐパス検証
+- Lazily loaded project file tree
+- Runtime root switching through **Open Folder**
+- Pinned projects with actions for opening, structure summaries, improvement reviews, Loop, path copying, and unpinning
+- Project-structure summaries from the context menu or mobile overflow menu
+- Resizable Ollama Assistant panel with the selected width saved locally
+- File summaries, detailed explanations, and reviews directly from the file context menu
+- Folder-level structure summaries
+- Whole-project improvement reviews using up to three models
+- `Loop ×3` for as many as three rounds of multi-model analysis, consolidation, safe edits, and tests
+- Mobile navigation between Files, Code, and AI panels
+- English and Japanese interfaces and Ollama response-language selection
+- Parent-directory navigation from the file browser
+- Full-screen Ollama Assistant with `Esc` to restore the normal layout
+- Up to eight analysis tabs with concurrent execution
+- IndexedDB persistence for analysis tabs, generated content, the selected tab, and the last open file
+- Grouped multi-model improvement runs with an integrated result showing agreements, disagreements, priorities, and an implementation plan
+- Protection against duplicate multi-model runs
+- Exclusion of the premium `kimi-k3` model from Ollama Cloud lists and automatic validation
+- Clickable file and function references in Ollama responses, with matching source lines highlighted
+- Source display with line numbers, language, line count, and file size
+- Absolute-path display with a tooltip and one-click copy
+- Global `READ ONLY` lock enabled by default; the server rejects saves and Git operations while it is active
+- UTF-8 editing, external-change conflict detection, and atomic saves with `⌘S` or `Ctrl+S`
+- Git branch and file-status display, plus an explicit commit action limited to the current file
+- File-name filtering with `⌘K` or `Ctrl+K`
+- Analysis of an entire file or a source selection
+- Streaming Ollama responses and model selection
+- Direct Markdown export with metadata
+- Print-ready PDF export with Japanese-language support
+- Automatic exclusion of `.git`, `node_modules`, virtual environments, build outputs, and other generated directories
+- Path validation that prevents access outside the root selected at startup or through **Open Folder**
 
-## プロジェクト構成の自動要約
+## Project structure summaries
 
-ファイルブラウザでフォルダを右クリックするか、モバイルの「…」メニューから `このフォルダ構成を要約` を選ぶと、右ペインに次の内容を生成します。起動時やディレクトリ移動時には自動実行しません。
+Right-click a folder in the file browser, or use the mobile overflow menu, and select **Summarize this folder structure**. Code Browser generates the following information in the assistant panel:
 
-- プロジェクト概要
-- 技術スタック
-- 主要ディレクトリの役割
-- 処理の入口と主要ファイル
-- コードを読み進める推奨順序
+- Project overview
+- Technology stack
+- Responsibilities of the main directories
+- Entry points and important files
+- A recommended reading order
 
-構成要約では最大4階層・1200項目のファイル構成と、README、`package.json`、`pyproject.toml`、`go.mod` などの主要メタデータだけをOllamaへ送ります。ソースコード全体や `.env` の内容は送りません。同一ブラウザセッション内では要約をキャッシュし、再読み込みによる重複実行を防ぎます。構成要約もMarkdown・PDFで保存できます。
+Structure summaries are never triggered automatically at startup or when navigating between directories.
 
-## 自動改善Loop
+Code Browser sends Ollama a file tree limited to four levels and 1,200 entries, plus selected metadata files such as `README`, `package.json`, `pyproject.toml`, and `go.mod`. It does not send the entire source tree or the contents of `.env`. Results are cached for the current browser session to avoid duplicate model requests and can be exported as Markdown or PDF.
 
-右ペインの `Loop ×3` は現在のプロジェクトを対象にします。ファイルまたはディレクトリの右クリックメニューから対象を限定することもできます。
+## Automated improvement Loop
 
-1. 最大3モデルで独立レビュー
-2. 先頭モデルが指摘を統合し、厳格なJSONで変更候補を生成
-3. サーバーが対象パス・元ファイルのSHA-256・サイズを検証
-4. 検証済みのUTF-8ソースだけをアトミック保存
-5. `python -m pytest`または`python -m unittest discover -s tests`をプロジェクト構成から検出して実行
-6. 専用の `ollama-loop/YYYYMMDD-HHMMSS` ブランチへラウンド単位でコミット
-7. 変更なし、3ラウンド完了、停止要求、エラー、READ ONLY有効化のいずれかで停止
+`Loop ×3` in the assistant panel targets the current project. You can also limit the target through a file or directory context menu.
 
-Loopの自動編集対象は現在Python（`.py`）だけです。ファイルLoopでは非Pythonファイルを拒否し、プロジェクトLoopでは構成情報を参照しつつ、解析・編集・構文検証の対象をPythonファイルに限定します。
+Each round performs the following steps:
 
-Git未管理のプロジェクトでLoopを開始すると、プロジェクト直下へローカルGitリポジトリと初期コミットを自動作成します。`.env`、秘密鍵、DB、`data/`、ログ、依存パッケージ、ビルド成果物は `.git/info/exclude` で初期コミットから除外し、リモート設定やpushは行いません。既にGit管理されている場合は、ワークツリーがcleanなときだけ開始できます。既存の変更を自動的に退避・上書きすることはありません。READ ONLYがONの場合は開始できず、実行中にONへ戻した場合は次の書き込み前に停止します。モデルが生成した任意のシェルコマンドは実行しません。
+1. Up to three models review the target independently.
+2. The primary model consolidates the findings and produces strict JSON change candidates.
+3. The server validates each target path, original file SHA-256, and file size.
+4. Only validated UTF-8 source files are saved, using atomic replacement.
+5. The application detects and runs either `python -m pytest` or `python -m unittest discover -s tests` when supported by the project structure.
+6. Successful rounds are committed to a dedicated `ollama-loop/YYYYMMDD-HHMMSS` branch.
+7. The Loop stops when no changes remain, three rounds complete, the user requests a stop, an error occurs, or `READ ONLY` is enabled.
 
-モデルが存在しないディレクトリ付きパスを返した場合、編集対象内で同名ファイルが1件だけならそのパスへ安全に補正します。複数候補がある場合は拒否します。生成内容にMarkdownの差分記号が混入している場合やPython構文が不正な場合は保存前に拒否します。検出したテストが失敗またはタイムアウトした場合は、そのラウンドの全変更を元に戻してコミットしません。
+Automated Loop edits are currently limited to Python (`.py`) files. A file Loop rejects non-Python targets. A project Loop may use broader structure information for context, but analysis, editing, and syntax validation remain limited to Python files.
 
-## Ollama 接続順
+When a Loop starts in a project that is not managed by Git, Code Browser creates a local repository and an initial commit at the project root. It excludes `.env`, private keys, databases, `data/`, logs, dependencies, and build outputs through `.git/info/exclude`. It does not configure a remote or push commits.
 
-### Ollama Cloudへ直接接続（推奨）
+For an existing Git repository, the Loop starts only when the working tree is clean. It never stashes or overwrites pre-existing changes. A Loop cannot start while `READ ONLY` is enabled and stops before the next write if the lock is re-enabled. Model-generated shell commands are never executed.
 
-OllamaのAPIキーを環境変数へ設定して起動すると、ローカルサーバーを経由せず `https://ollama.com/api` へ直接接続します。APIキーがブラウザへ渡ることはありません。
+If a model returns a path containing nonexistent directories, Code Browser corrects it only when exactly one authorized file has the same name. Ambiguous paths are rejected. Full-file responses containing patch markers or invalid Python syntax are rejected before saving. If detected tests fail or time out, all changes from that round are restored and no commit is created.
+
+## Ollama connection order
+
+### Direct Ollama Cloud connection (recommended)
+
+Set an Ollama API key in the environment to connect directly to `https://ollama.com/api` without routing through a local Ollama server. The API key is never sent to the browser.
 
 ```bash
-export OLLAMA_API_KEY="Ollamaで作成したAPIキー"
+export OLLAMA_API_KEY="your_ollama_api_key"
 ./start.sh /path/to/your/project
 ```
 
-APIキーをシェル履歴へ残したくない場合は、次のように非表示で入力できます。
+To avoid storing the key in shell history:
 
 ```bash
 read -s OLLAMA_API_KEY
@@ -106,67 +108,69 @@ export OLLAMA_API_KEY
 ./start.sh /path/to/your/project
 ```
 
-または、アプリのディレクトリにある `.env` へ設定できます。起動時に自動で読み込まれ、既にシェルで設定されている環境変数は上書きしません。
+You can also store the value in `.env` in the application directory. Code Browser loads this file at startup without overriding variables that are already present in the shell environment.
 
 ```dotenv
 OLLAMA_API_KEY=your_api_key
 ```
 
-`.env` は `.gitignore` の対象です。
+`.env` is excluded by `.gitignore`.
 
-### APIキー未設定時
+### Without an API key
 
-1. `OLLAMA_HOSTS` で指定した接続先（設定時）
+Code Browser tries these endpoints in order:
+
+1. Endpoints specified by `OLLAMA_HOSTS`, when configured
 2. `http://localhost:11434`
 
-ローカルMacへフォールバックした場合は、ワークスペース方針に合わせて `:cloud` モデルだけを表示・使用します。既定モデルはコード向けの 7B Coder 系を優先します。
+When it falls back to Ollama on the local Mac, Code Browser displays and uses only `:cloud` models to match the current workspace policy. It prefers a code-oriented 7B Coder model as the default.
 
-接続先を明示的に変更する場合は、カンマ区切りの `OLLAMA_HOSTS` を `.env` または環境変数へ指定できます。APIリクエストではこの設定済みリスト以外のホストを拒否し、モデル一覧は30秒キャッシュします。接続先設定が変わった場合は期限前でもキャッシュを無効化します。
+To configure endpoints explicitly, set a comma-separated `OLLAMA_HOSTS` value in `.env` or the environment. API requests reject hosts outside this configured list. The model list is cached for 30 seconds and invalidated immediately when endpoint settings change.
 
 ```dotenv
 OLLAMA_HOSTS=http://ollama-server.local:11434,http://localhost:11434
 ```
 
-## 制限
+## Limitations and security boundaries
 
-- Gitコミットは自動実行しません。`READ ONLY`を解除し、対象ファイルの`Git`ボタンから明示的に実行します。
-- 1ファイル 1.5 MB まで表示できます。
-- バイナリファイルは表示しません。
-- Ollama へ送るコードは最大 120,000 文字です。
-- 信頼できるローカル環境向けです。外部公開しないでください。
+- Git commits are never created automatically outside the explicit Loop workflow. For a manual commit, disable `READ ONLY` and select **Git** for the target file.
+- The maximum displayed file size is 1.5 MB.
+- Binary files are not displayed.
+- Code sent to Ollama is limited to 120,000 characters per request.
+- The application is intended for trusted local environments. Do not expose it directly to the public internet.
 
-HTTP応答にはCSP等のセキュリティヘッダーを付与し、すべてのPOST APIは `X-Requested-With: CodeBrowser` を必須とします。画面からの通常操作では自動付与されます。
+HTTP responses include security headers such as Content Security Policy. Every POST API requires `X-Requested-With: CodeBrowser`; normal requests from the application include it automatically.
 
-## Markdown / PDF 保存
+## Markdown and PDF export
 
-解析が完了すると右ペインの `Markdown` と `PDF` ボタンが有効になります。
+The **Markdown** and **PDF** buttons become available after an analysis completes.
 
-- `Markdown`: 対象ファイル、モデル、接続先、作成日時と解析結果を `.md` でダウンロードします。
-- `PDF`: A4向けに整形した印刷画面を開きます。macOS の印刷画面で `PDF` → `PDFとして保存` を選択してください。ブラウザ標準の日本語フォントを使うため、追加パッケージは不要です。
+- **Markdown** downloads the target file, model, endpoint, creation time, and result as a `.md` file.
+- **PDF** opens an A4 print layout. On macOS, select **PDF → Save as PDF** in the print dialog. The layout uses browser-provided Japanese fonts, so no additional package is required.
 
-## ChatGPT MCP連携
+## ChatGPT MCP integration
 
-Code Browserを開いているブラウザは、ピン一覧・現在のプロジェクトとファイル・生成済み解析タブをローカルの `.code-browser-mcp-state.json` へ同期します。APIキーやソースコード本文はこの同期ファイルへ保存しません。
+The browser running Code Browser synchronizes pinned projects, the current project and file, and generated analysis tabs to a local `.code-browser-mcp-state.json` file. It does not store API keys or source-code contents in that state file.
 
-MCPサーバーを起動します。初回だけ専用仮想環境へ公式Python MCP SDKをインストールします。
+Start the MCP server. On the first run, the script installs the official Python MCP SDK into a dedicated virtual environment.
 
 ```bash
 cd /path/to/CodeBrowser
 ./start-mcp.sh
 ```
 
-ローカルのStreamable HTTPエンドポイントは `http://127.0.0.1:8766/mcp` です。次の読み取り専用ツールを公開します。
+The local Streamable HTTP endpoint is `http://127.0.0.1:8766/mcp`. It exposes the following read-only tools:
 
-- `list_pinned_projects`: 固定したプロジェクト一覧
-- `get_current_context`: 現在開いているプロジェクト、ファイル、READ ONLY状態
-- `list_analysis_results`: 要約・解説・レビュー・改善結果のメタデータとプレビュー
-- `get_analysis_result`: 指定した解析IDの全文
-- `get_loop_status`: 最新Loopの対象、ブランチ、進捗、ラウンド要約
-- `get_loop_round`: 指定ラウンドのモデル別解析、変更、テスト、コミット
+- `list_pinned_projects`: list pinned projects
+- `get_current_context`: return the current project, file, and `READ ONLY` state
+- `list_analysis_results`: list metadata and previews for summaries, explanations, reviews, and improvement results
+- `get_analysis_result`: return the complete text for a specified analysis ID
+- `get_loop_status`: return the latest Loop target, branch, progress, and round summaries
+- `get_loop_round`: return per-model analysis, changes, tests, and commit data for a specified round
 
-ChatGPTから接続する場合は、ローカルポートを直接外部公開せず、ChatGPTのDeveloper modeとSecure MCP Tunnelを使用してください。ChatGPT Pluginsの接続追加画面でTunnelを選択し、トンネルがこのMCPエンドポイントへ到達するよう設定します。公開HTTPSへ配置する場合は、必ず認証を追加してください。
+When connecting from ChatGPT, do not expose the local port directly. Use ChatGPT Developer mode and Secure MCP Tunnel. In the ChatGPT Plugins connection flow, select Tunnel and configure it to reach this MCP endpoint. If you deploy the endpoint on public HTTPS infrastructure, add authentication.
 
-プロトコルの動作確認:
+Verify the protocol with:
 
 ```bash
 .venv-mcp/bin/python scripts/check_mcp.py http://127.0.0.1:8766/mcp
