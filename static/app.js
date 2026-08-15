@@ -885,12 +885,156 @@ async function openFile(path, row = null, options = {}) {
 
 function renderCodeContent(content) {
   const lines = content.split('\n');
+  const syntaxState = {blockEnd: null, blockClass: null};
   $('#codeView').innerHTML = lines.map((line, index) =>
-    `<span class="code-line" data-code-line="${index + 1}">${line ? escapeHtml(line) : ' '}</span>`
+    `<span class="code-line" data-code-line="${index + 1}">${line ? highlightCodeLine(line, state.file?.language, syntaxState) : ' '}</span>`
   ).join('');
   $('#lineNumbers').innerHTML = lines.map((_, index) =>
     `<span data-line-number="${index + 1}">${index + 1}</span>`
   ).join('');
+}
+
+const SYNTAX_KEYWORDS = {
+  python: new Set('and as assert async await break case class continue def del elif else except False finally for from global if import in is lambda match None nonlocal not or pass raise return True try while with yield'.split(' ')),
+  javascript: new Set('async await break case catch class const continue debugger default delete do else export extends finally for from function get if import in instanceof let new of return set static super switch this throw try typeof var void while with yield'.split(' ')),
+  typescript: new Set('abstract any as async await boolean break case catch class const constructor continue declare default delete do else enum export extends false finally for from function get if implements import in infer instanceof interface keyof let module namespace never new null number object of override private protected public readonly return satisfies set static string super switch symbol this throw true try type typeof undefined unknown var void while with yield'.split(' ')),
+  ruby: new Set('alias and begin break case class def defined do else elsif end ensure false for if in module next nil not or redo rescue retry return self super then true undef unless until when while yield'.split(' ')),
+  go: new Set('break case chan const continue default defer else fallthrough for func go goto if import interface map package range return select struct switch type var'.split(' ')),
+  rust: new Set('as async await break const continue crate dyn else enum extern false fn for if impl in let loop match mod move mut pub ref return self Self static struct super trait true type unsafe use where while'.split(' ')),
+  java: new Set('abstract assert boolean break byte case catch char class const continue default do double else enum extends final finally float for goto if implements import instanceof int interface long native new package private protected public return short static strictfp super switch synchronized this throw throws transient try void volatile while'.split(' ')),
+  c: new Set('auto break case char const continue default do double else enum extern float for goto if inline int long register restrict return short signed sizeof static struct switch typedef union unsigned void volatile while'.split(' ')),
+};
+const SYNTAX_NUMBER_PATTERN = /(?:0[xob][\da-f]+|\d+(?:\.\d+)?(?:e[+-]?\d+)?)/iy;
+const SYNTAX_IDENTIFIER_PATTERN = /[A-Za-z_$][\w$]*/y;
+
+function syntaxProfile(language) {
+  const value = String(language || '').toLowerCase();
+  const key = value === 'tsx' || value === 'typescript' ? 'typescript'
+    : value === 'jsx' || value.includes('javascript') ? 'javascript'
+      : value.includes('python') ? 'python'
+        : value.includes('ruby') ? 'ruby'
+          : value === 'go' ? 'go'
+            : value.includes('rust') ? 'rust'
+              : value.includes('java') || value.includes('kotlin') ? 'java'
+                : value.startsWith('c') ? 'c' : value;
+  const hashComment = ['python', 'ruby', 'shell', 'bash', 'yaml', 'toml'].includes(key);
+  const slashComment = ['javascript', 'typescript', 'go', 'rust', 'java', 'c', 'css', 'scss'].includes(key);
+  return {
+    key,
+    keywords: SYNTAX_KEYWORDS[key] || new Set(),
+    lineComments: hashComment ? ['#'] : slashComment ? ['//'] : [],
+    blockComments: key === 'html' ? [['<!--', '-->']] : slashComment ? [['/*', '*/']] : [],
+    tripleStrings: key === 'python' ? ['"""', "'''"] : [],
+  };
+}
+
+function syntaxToken(className, value) {
+  return `<span class="syntax-${className}">${escapeHtml(value)}</span>`;
+}
+
+function highlightCodeLine(line, language, scannerState) {
+  const profile = syntaxProfile(language);
+  let html = '';
+  let index = 0;
+  let expectDefinitionName = false;
+  const appendDelimited = (end, className) => {
+    const found = line.indexOf(end, index);
+    if (found < 0) {
+      html += syntaxToken(className, line.slice(index));
+      index = line.length;
+      return false;
+    }
+    const finish = found + end.length;
+    html += syntaxToken(className, line.slice(index, finish));
+    index = finish;
+    return true;
+  };
+
+  while (index < line.length) {
+    if (scannerState.blockEnd) {
+      if (appendDelimited(scannerState.blockEnd, scannerState.blockClass)) {
+        scannerState.blockEnd = null;
+        scannerState.blockClass = null;
+      }
+      continue;
+    }
+
+    const lineComment = profile.lineComments.find(marker => line.startsWith(marker, index));
+    if (lineComment) {
+      html += syntaxToken('comment', line.slice(index));
+      break;
+    }
+
+    const blockComment = profile.blockComments.find(([start]) => line.startsWith(start, index));
+    if (blockComment) {
+      scannerState.blockEnd = blockComment[1];
+      scannerState.blockClass = 'comment';
+      if (appendDelimited(scannerState.blockEnd, 'comment')) {
+        scannerState.blockEnd = null;
+        scannerState.blockClass = null;
+      }
+      continue;
+    }
+
+    const triple = profile.tripleStrings.find(marker => line.startsWith(marker, index));
+    if (triple) {
+      scannerState.blockEnd = triple;
+      scannerState.blockClass = 'string';
+      const start = index;
+      index += triple.length;
+      const found = line.indexOf(triple, index);
+      if (found < 0) {
+        html += syntaxToken('string', line.slice(start));
+        index = line.length;
+      } else {
+        index = found + triple.length;
+        html += syntaxToken('string', line.slice(start, index));
+        scannerState.blockEnd = null;
+        scannerState.blockClass = null;
+      }
+      continue;
+    }
+
+    const char = line[index];
+    if (char === '"' || char === "'" || (char === '`' && ['javascript', 'typescript'].includes(profile.key))) {
+      const start = index++;
+      while (index < line.length) {
+        if (line[index] === '\\') index += 2;
+        else if (line[index++] === char) break;
+      }
+      html += syntaxToken('string', line.slice(start, index));
+      continue;
+    }
+
+    SYNTAX_NUMBER_PATTERN.lastIndex = index;
+    const number = SYNTAX_NUMBER_PATTERN.exec(line);
+    if (number) {
+      html += syntaxToken('number', number[0]);
+      index += number[0].length;
+      continue;
+    }
+
+    SYNTAX_IDENTIFIER_PATTERN.lastIndex = index;
+    const identifier = SYNTAX_IDENTIFIER_PATTERN.exec(line);
+    if (identifier) {
+      const word = identifier[0];
+      const previous = line.slice(0, index).trimEnd().at(-1) || '';
+      const next = line.slice(index + word.length).trimStart()[0] || '';
+      let className = '';
+      if (profile.keywords.has(word)) className = 'keyword';
+      else if (expectDefinitionName || next === '(' || previous === '@') className = 'function';
+      else if (previous === '.' || next === ':' && ['json', 'css', 'scss'].includes(profile.key)) className = 'property';
+      else if (previous === '<' || /^[A-Z]/.test(word)) className = 'type';
+      html += className ? syntaxToken(className, word) : escapeHtml(word);
+      expectDefinitionName = ['class', 'def', 'function', 'func', 'fn', 'interface', 'struct', 'enum'].includes(word);
+      index += word.length;
+      continue;
+    }
+
+    html += escapeHtml(char);
+    index += 1;
+  }
+  return html;
 }
 
 function updateGitStatus(git = state.file?.git) {
