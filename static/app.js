@@ -951,6 +951,7 @@ function upsertLoopTab(tab) {
 function renderLoopJob(job) {
   if (!job?.id) return;
   const streaming = loopIsRunning(job.status);
+  const hadJobTabs = state.analysisTabs.some(tab => tab.groupId === job.id);
   const common = {
     model: (job.models || []).join(', '), host: job.host || '', language: state.language,
     projectRoot: job.repository || state.config?.root || '', groupId: job.id, controller: null,
@@ -975,7 +976,10 @@ function renderLoopJob(job) {
   $('#stopLoopButton').hidden = !streaming;
   $('#assistantMeta').textContent = localizedLoopMessage(job);
   renderAnalysisTabs();
-  if (!state.activeAnalysisTabId || state.activeAnalysisTabId.startsWith(job.id)) activateAnalysisTab(`${job.id}-summary`);
+  const activeTabStillExists = Boolean(findAnalysisTab(state.activeAnalysisTabId));
+  if ((!hadJobTabs || !activeTabStillExists) && findAnalysisTab(`${job.id}-summary`)) {
+    activateAnalysisTab(`${job.id}-summary`);
+  }
   scheduleWorkspaceSave();
 }
 
