@@ -639,7 +639,10 @@ class RequestHandler(BaseHTTPRequestHandler):
                 f"Project: {target.name or str(target)}\nRoot: {target}\n\n"
                 "Using only the directory structure and project metadata below, summarize the project in English.\n\n"
                 "Use exactly these headings:\n## Project overview\n## Technology stack\n"
-                "## Directory structure\n## Entry points and key files\n## Recommended reading order\n"
+                "## Directory structure\n## Entry points and key files\n## Recommended reading order\n## Relationship diagram\n"
+                "Under Relationship diagram, include one fenced `relationship` block with 3 to 10 evidence-based edges in this exact format:\n"
+                "```relationship\nsource file or symbol | short relationship | target file or symbol\n```\n"
+                "Use one edge per line, exact file or symbol names when available, and do not use the pipe character inside a field. "
                 "Do not present guesses as facts. State when the structure is insufficient to determine something.\n\n"
                 f"{snapshot}"
             )
@@ -651,7 +654,10 @@ class RequestHandler(BaseHTTPRequestHandler):
                 "以下はディレクトリ構成と主要メタデータです。記載された情報だけを根拠に、"
                 "プロジェクト全体を日本語で要約してください。\n\n"
                 "必ず次の見出しを使ってください。\n## プロジェクト概要\n## 技術スタック\n"
-                "## ディレクトリ構成\n## 処理の入口と主要ファイル\n## 読み進める順序\n"
+                "## ディレクトリ構成\n## 処理の入口と主要ファイル\n## 読み進める順序\n## 関係図\n"
+                "関係図には、根拠のある関係を3〜10本、次の形式の`relationship`コードブロックで記述してください。\n"
+                "```relationship\n元のファイルまたはシンボル | 短い関係 | 先のファイルまたはシンボル\n```\n"
+                "1行に1関係とし、可能なら正確なファイル名・シンボル名を使い、各項目内では縦線を使わないでください。"
                 "不明な項目は推測で断定せず「構成からは判断できない」と記載してください。\n\n"
                 f"{snapshot}"
             )
@@ -742,14 +748,14 @@ class RequestHandler(BaseHTTPRequestHandler):
             raise ValueError("No Ollama models are available")
 
         instructions = ({
-            "summary": "Summarize the code's purpose, main structure, inputs, outputs, and dependencies concisely.",
+            "summary": "Summarize the code's purpose, main structure, inputs, outputs, and dependencies concisely. End with a '## Relationship diagram' section containing 3 to 10 evidence-based edges in a fenced `relationship` block. Use exactly one edge per line in this format: source file or symbol | short relationship | target file or symbol. Use exact names and do not use the pipe character inside a field.",
             "explain": "Explain the execution flow, important functions and classes, and data movement in clear English.",
             "review": "Review the code for possible bugs, security, performance, and maintainability. Give evidence and improvements.",
             "improve": "Focus exclusively on concrete improvements. Prioritize them by impact, explain the evidence and expected benefit, and include a practical implementation suggestion. Avoid generic advice and explicitly say when no change is warranted.",
             "consensus": "Act as the lead reviewer. Combine the model reports below into one decision-oriented result with these headings: Shared findings, Disagreements and uncertainty, Priority order, Recommended implementation plan. Deduplicate equivalent suggestions, distinguish model consensus from single-model claims, and do not invent findings absent from the reports.\n\nMODEL REPORTS:\n" + str(payload.get("question", ""))[:120000],
             "ask": str(payload.get("question", "Explain this code.")),
         } if language == "en" else {
-            "summary": "コードの目的、主要な構成、入出力、依存関係を簡潔に要約してください。",
+            "summary": "コードの目的、主要な構成、入出力、依存関係を簡潔に要約してください。最後に「## 関係図」を追加し、根拠のある関係を3〜10本、`relationship`コードブロック内へ1行ずつ「元のファイルまたはシンボル | 短い関係 | 先のファイルまたはシンボル」の形式で記述してください。正確な名前を使い、各項目内では縦線を使わないでください。",
             "explain": "処理の流れを上から順に、重要な関数・クラス・データの動きを初心者にも分かる日本語で説明してください。",
             "review": "コードレビューを行い、バグ候補、セキュリティ、性能、保守性の順で、根拠と改善案を示してください。問題がなければ明記してください。",
             "improve": "具体的な改善点だけに特化してください。影響度順に、根拠、期待効果、実装方法を示してください。一般論は避け、変更不要な箇所はその旨を明記してください。",

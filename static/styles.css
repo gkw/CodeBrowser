@@ -158,6 +158,17 @@ body.assistant-is-fullscreen .assistant-resizer { display: none; }
 .answer pre { overflow: auto; background: #0c0e11; border: 1px solid var(--line); border-radius: 7px; padding: 10px; }
 .answer pre code { padding: 0; background: transparent; color: #cad1dc; }
 .answer ul, .answer ol { padding-left: 20px; }
+.relationship-diagram { margin: 10px 0 16px; overflow: auto; border: 1px solid #303741; border-radius: 9px; background: radial-gradient(circle at 50% 0, rgba(126,182,255,.08), transparent 55%), #0c0f13; }
+.relationship-diagram svg { display: block; width: 100%; min-width: 520px; max-height: 520px; }
+.relationship-edge { fill: none; stroke: #667586; stroke-width: 1.5; }
+.relationship-diagram marker path { fill: #8fa1b4; }
+.relationship-label { fill: #9aa8b8; stroke: #0c0f13; stroke-width: 5px; paint-order: stroke; font-size: 9px; }
+.relationship-node { cursor: default; }
+.relationship-node[data-code-reference] { cursor: pointer; }
+.relationship-node rect { fill: #171c22; stroke: #46515f; stroke-width: 1.2; }
+.relationship-node text { fill: #d9e1eb; font: 10px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.relationship-node[data-code-reference]:hover rect, .relationship-node[data-code-reference]:focus rect { outline: none; fill: rgba(197,242,95,.12); stroke: var(--accent); }
+.relationship-node[data-code-reference]:hover text, .relationship-node[data-code-reference]:focus text { fill: var(--accent); }
 .export-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 0 10px 8px; }
 .export-row button { height: 32px; border: 1px solid var(--line); border-radius: 6px; background: #171a20; color: #aeb6c1; cursor: pointer; font-size: 10px; }
 .export-row button:not(:disabled):hover { border-color: rgba(197,242,95,.45); color: var(--accent); background: var(--accent-dim); }

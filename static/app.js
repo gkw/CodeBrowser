@@ -35,6 +35,7 @@ let mcpSyncTimer = null;
 let loopPollTimer = null;
 let restoringWorkspace = false;
 let deferredInstallPrompt = null;
+let relationshipDiagramSequence = 0;
 const translations = {
   ja: {
     openFolder: 'フォルダを開く', filter: 'ファイルを絞り込み', noFile: 'ファイルを選択',
@@ -1574,7 +1575,7 @@ async function analyzeProject(relativePath = '') {
   const targetPath = normalizedPath ? `${state.config.root}/${normalizedPath}` : state.config.root;
   state.lastMode = 'project';
   state.reportTarget = {name: targetName, path: targetPath};
-  const cacheKey = `project-summary:${state.language}:${targetPath}`;
+  const cacheKey = `project-summary:v2:${state.language}:${targetPath}`;
   const cached = sessionStorage.getItem(cacheKey);
   if (cached) {
     const cachedTab = createAnalysisTab('project', state.reportTarget);
@@ -1843,7 +1844,7 @@ function linkifyAnswerReferences() {
   const nodes = [];
   while (walker.nextNode()) {
     const parent = walker.currentNode.parentElement;
-    if (!parent?.closest('a, pre, [data-code-reference]')) nodes.push(walker.currentNode);
+    if (!parent?.closest('a, pre, .relationship-diagram, [data-code-reference]')) nodes.push(walker.currentNode);
   }
   nodes.forEach(node => {
     const matches = referenceMatches(node.nodeValue || '');
@@ -1963,6 +1964,13 @@ function savePdf() {
   code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 8.8pt; background: #f0f2f4; padding: .3mm 1mm; border-radius: 1mm; overflow-wrap: anywhere; }
   pre { padding: 4mm; border: 1px solid #d7dce2; border-radius: 2mm; background: #f7f8f9; white-space: pre-wrap; overflow-wrap: anywhere; break-inside: avoid; }
   pre code { padding: 0; background: transparent; }
+  .relationship-diagram { margin: 4mm 0; overflow: hidden; border: 1px solid #d7dce2; border-radius: 2mm; break-inside: avoid; }
+  .relationship-diagram svg { display: block; width: 100%; max-height: 115mm; }
+  .relationship-edge { fill: none; stroke: #687786; stroke-width: 1.5; }
+  .relationship-diagram marker path { fill: #687786; }
+  .relationship-label { fill: #53606d; stroke: #fff; stroke-width: 5px; paint-order: stroke; font-size: 9px; }
+  .relationship-node rect { fill: #f4f7f9; stroke: #7b8997; stroke-width: 1.2; }
+  .relationship-node text { fill: #24303c; font: 10px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
   .meta { display: grid; grid-template-columns: 26mm 1fr; gap: 1.2mm 3mm; color: #5e6672; font-size: 8.5pt; }
   .meta dt { font-weight: 700; }
   .meta dd { margin: 0; overflow-wrap: anywhere; }
@@ -1984,7 +1992,13 @@ function savePdf() {
 
 function renderMarkdown(source) {
   if (!source) return '';
-  let html = escapeHtml(source);
+  const diagrams = [];
+  const protectedSource = String(source).replace(/```(?:relationship|diagram)\s*\n([\s\S]*?)```/gi, (_, definition) => {
+    const token = `RELATIONSHIP_DIAGRAM_${diagrams.length}_TOKEN`;
+    diagrams.push({token, definition});
+    return `\n\n${token}\n\n`;
+  });
+  let html = escapeHtml(protectedSource);
   html = html.replace(/```[^\n]*\n([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
   html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>')
     .replace(/^## (.+)$/gm, '<h2>$1</h2>')
@@ -1995,7 +2009,92 @@ function renderMarkdown(source) {
     .replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>')
     .replace(/\n{2,}/g, '</p><p>')
     .replace(/\n/g, '<br>');
-  return `<p>${html}</p>`.replace(/<p>\s*(<(?:h\d|pre|ul))/g, '$1').replace(/(<\/(?:h\d|pre|ul)>)\s*<\/p>/g, '$1');
+  let result = `<p>${html}</p>`.replace(/<p>\s*(<(?:h\d|pre|ul))/g, '$1').replace(/(<\/(?:h\d|pre|ul)>)\s*<\/p>/g, '$1');
+  for (const diagram of diagrams) {
+    const rendered = renderRelationshipDiagram(diagram.definition);
+    result = result.replace(`<p>${diagram.token}</p>`, rendered).replace(diagram.token, rendered);
+  }
+  return result;
+}
+
+function renderRelationshipDiagram(definition) {
+  const edges = String(definition).split('\n').map(line => line.trim()).filter(Boolean).slice(0, 12).map(line => {
+    const parts = line.split('|').map(part => part.trim());
+    return parts.length === 3 && parts.every(Boolean)
+      ? {source: parts[0].slice(0, 80), relation: parts[1].slice(0, 60), target: parts[2].slice(0, 80)}
+      : null;
+  }).filter(Boolean);
+  if (!edges.length) return `<pre><code>${escapeHtml(definition)}</code></pre>`;
+
+  const nodes = [...new Set(edges.flatMap(edge => [edge.source, edge.target]))].slice(0, 16);
+  const allowed = new Set(nodes);
+  const usableEdges = edges.filter(edge => allowed.has(edge.source) && allowed.has(edge.target));
+  const incoming = new Map(nodes.map(node => [node, 0]));
+  const outgoing = new Map(nodes.map(node => [node, []]));
+  for (const edge of usableEdges) {
+    incoming.set(edge.target, incoming.get(edge.target) + 1);
+    outgoing.get(edge.source).push(edge.target);
+  }
+  const levels = new Map(nodes.map(node => [node, 0]));
+  const queue = nodes.filter(node => incoming.get(node) === 0);
+  const visited = new Set();
+  while (queue.length) {
+    const node = queue.shift();
+    if (visited.has(node)) continue;
+    visited.add(node);
+    for (const target of outgoing.get(node)) {
+      levels.set(target, Math.max(levels.get(target), levels.get(node) + 1));
+      incoming.set(target, incoming.get(target) - 1);
+      if (incoming.get(target) === 0) queue.push(target);
+    }
+  }
+  const unresolved = nodes.filter(node => !visited.has(node));
+  unresolved.forEach((node, index) => levels.set(node, index % Math.min(3, Math.max(1, unresolved.length))));
+  const maximumLevel = Math.min(4, Math.max(...levels.values(), 0));
+  for (const node of nodes) levels.set(node, Math.min(levels.get(node), maximumLevel));
+  const columns = Array.from({length: maximumLevel + 1}, () => []);
+  nodes.forEach(node => columns[levels.get(node)].push(node));
+
+  const boxWidth = 180;
+  const boxHeight = 44;
+  const columnGap = 115;
+  const rowGap = 34;
+  const padding = 24;
+  const width = Math.max(420, padding * 2 + columns.length * boxWidth + Math.max(0, columns.length - 1) * columnGap);
+  const largestColumn = Math.max(...columns.map(column => column.length), 1);
+  const height = Math.max(150, padding * 2 + largestColumn * boxHeight + Math.max(0, largestColumn - 1) * rowGap);
+  const positions = new Map();
+  columns.forEach((column, columnIndex) => {
+    const contentHeight = column.length * boxHeight + Math.max(0, column.length - 1) * rowGap;
+    const startY = (height - contentHeight) / 2;
+    column.forEach((node, rowIndex) => positions.set(node, {
+      x: padding + columnIndex * (boxWidth + columnGap),
+      y: startY + rowIndex * (boxHeight + rowGap),
+    }));
+  });
+
+  const markerId = `relationship-arrow-${++relationshipDiagramSequence}`;
+  const edgeMarkup = usableEdges.map(edge => {
+    const source = positions.get(edge.source);
+    const target = positions.get(edge.target);
+    const startX = source.x + boxWidth;
+    const startY = source.y + boxHeight / 2;
+    const endX = target.x;
+    const endY = target.y + boxHeight / 2;
+    const control = Math.max(35, Math.abs(endX - startX) / 2);
+    const path = `M ${startX} ${startY} C ${startX + control} ${startY}, ${endX - control} ${endY}, ${endX} ${endY}`;
+    const labelX = (startX + endX) / 2;
+    const labelY = (startY + endY) / 2 - 7;
+    return `<path class="relationship-edge" d="${path}" marker-end="url(#${markerId})"></path><text class="relationship-label" x="${labelX}" y="${labelY}" text-anchor="middle">${escapeHtml(edge.relation)}</text>`;
+  }).join('');
+  const nodeMarkup = nodes.map(node => {
+    const position = positions.get(node);
+    const reference = /(?:\.[A-Za-z0-9]+(?:[:#]\d+)?$|\(\)$)/.test(node) ? ` data-code-reference="${escapeHtml(node)}" role="link" tabindex="0"` : '';
+    const label = node.length > 28 ? `${node.slice(0, 27)}…` : node;
+    return `<g class="relationship-node" transform="translate(${position.x} ${position.y})"${reference}><rect width="${boxWidth}" height="${boxHeight}" rx="8"></rect><text x="${boxWidth / 2}" y="${boxHeight / 2 + 4}" text-anchor="middle">${escapeHtml(label)}</text><title>${escapeHtml(node)}</title></g>`;
+  }).join('');
+  const accessibleLabel = usableEdges.map(edge => `${edge.source} ${edge.relation} ${edge.target}`).join('; ');
+  return `<div class="relationship-diagram"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(accessibleLabel)}"><defs><marker id="${markerId}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z"></path></marker></defs>${edgeMarkup}${nodeMarkup}</svg></div>`;
 }
 
 function applyFilter() {

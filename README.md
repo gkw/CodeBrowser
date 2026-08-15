@@ -73,6 +73,7 @@ Code Browser does not provide user authentication. Do not use internet port forw
 - Git branch and file-status display, plus an explicit commit action limited to the current file
 - File-name filtering with `⌘K` or `Ctrl+K`
 - Analysis of an entire file or a source selection
+- Lightweight relationship diagrams in file and project summaries, with clickable file and symbol nodes
 - Streaming Ollama responses and model selection
 - Direct Markdown export with metadata
 - Print-ready PDF export with Japanese-language support
@@ -90,6 +91,8 @@ Right-click a folder in the file browser, or use the mobile overflow menu, and s
 - A recommended reading order
 
 Structure summaries are never triggered automatically at startup or when navigating between directories.
+
+Each new file or project summary asks the selected model for a compact, evidence-based relationship map. Code Browser renders the result locally as an SVG graph without loading an external diagram library. File and symbol nodes use the same source-navigation behavior as references in the written response. Existing cached summaries are left unchanged; rerun a summary to generate its diagram.
 
 Code Browser sends Ollama a file tree limited to four levels and 1,200 entries, plus selected metadata files such as `README`, `package.json`, `pyproject.toml`, and `go.mod`. It does not send the entire source tree or the contents of `.env`. Results are cached for the current browser session to avoid duplicate model requests and can be exported as Markdown or PDF.
 
