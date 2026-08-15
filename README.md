@@ -5,7 +5,7 @@ Cursor の File Browser に近い3ペイン構成で、プロジェクト内の�
 ## 起動
 
 ```bash
-cd /Users/gen/code/code-browser-ollama
+cd /path/to/CodeBrowser
 ./start.sh /path/to/your/project
 ```
 
@@ -91,7 +91,7 @@ Git未管理のプロジェクトでLoopを開始すると、プロジェクト�
 
 ### Ollama Cloudへ直接接続（推奨）
 
-OllamaのAPIキーを環境変数へ設定して起動すると、`srv01.local` を経由せず `https://ollama.com/api` へ直接接続します。APIキーがブラウザへ渡ることはありません。
+OllamaのAPIキーを環境変数へ設定して起動すると、ローカルサーバーを経由せず `https://ollama.com/api` へ直接接続します。APIキーがブラウザへ渡ることはありません。
 
 ```bash
 export OLLAMA_API_KEY="Ollamaで作成したAPIキー"
@@ -116,16 +116,15 @@ OLLAMA_API_KEY=your_api_key
 
 ### APIキー未設定時
 
-1. `http://srv01.local:11434`
-2. `http://m1.local:11434`
-3. `http://localhost:11434`
+1. `OLLAMA_HOSTS` で指定した接続先（設定時）
+2. `http://localhost:11434`
 
 ローカルMacへフォールバックした場合は、ワークスペース方針に合わせて `:cloud` モデルだけを表示・使用します。既定モデルはコード向けの 7B Coder 系を優先します。
 
 接続先を明示的に変更する場合は、カンマ区切りの `OLLAMA_HOSTS` を `.env` または環境変数へ指定できます。APIリクエストではこの設定済みリスト以外のホストを拒否し、モデル一覧は30秒キャッシュします。接続先設定が変わった場合は期限前でもキャッシュを無効化します。
 
 ```dotenv
-OLLAMA_HOSTS=http://srv01.local:11434,http://m1.local:11434
+OLLAMA_HOSTS=http://ollama-server.local:11434,http://localhost:11434
 ```
 
 ## 制限
@@ -152,7 +151,7 @@ Code Browserを開いているブラウザは、ピン一覧・現在のプロ�
 MCPサーバーを起動します。初回だけ専用仮想環境へ公式Python MCP SDKをインストールします。
 
 ```bash
-cd /Users/gen/code/code-browser-ollama
+cd /path/to/CodeBrowser
 ./start-mcp.sh
 ```
 
@@ -172,3 +171,9 @@ ChatGPTから接続する場合は、ローカルポートを直接外部公開�
 ```bash
 .venv-mcp/bin/python scripts/check_mcp.py http://127.0.0.1:8766/mcp
 ```
+
+## License
+
+[MIT License](LICENSE)
+
+This project is not affiliated with or endorsed by Ollama, Inc. Ollama is a trademark of Ollama, Inc.

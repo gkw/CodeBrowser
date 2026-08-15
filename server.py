@@ -37,8 +37,6 @@ IGNORED_NAMES = {
     ".venv", "venv", "dist", "build", ".next", ".cache", "coverage",
 }
 OLLAMA_HOSTS = [
-    "http://srv01.local:11434",
-    "http://m1.local:11434",
     "http://localhost:11434",
 ]
 OLLAMA_CLOUD_HOST = "https://ollama.com"
