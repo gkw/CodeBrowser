@@ -1,5 +1,5 @@
 #!/bin/sh
-set -e
+set -eu
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 ROOT_DIR=${1:-$PWD}
 PORT=${PORT:-8092}

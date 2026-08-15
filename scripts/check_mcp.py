@@ -26,7 +26,7 @@ async def check(url: str) -> None:
                 print(f"context_error={context.is_error} pinned_error={pinned.is_error} results_error={results.is_error} loop_error={loop.is_error}")
     except Exception as exc:
         print(f"ERROR: Could not connect to MCP server at {url}: {exc}", file=sys.stderr)
-        raise SystemExit(1) from exc
+        sys.exit(1)
 
 
 def main() -> None:

@@ -34,6 +34,11 @@ def state_path() -> Path:
     return Path(configured).expanduser() if configured else DEFAULT_STATE_PATH
 
 
+def loop_state_path() -> Path:
+    configured = os.environ.get("CODE_BROWSER_LOOP_STATE", "").strip()
+    return Path(configured).expanduser() if configured else DEFAULT_LOOP_STATE_PATH
+
+
 def load_state() -> dict[str, Any]:
     path = state_path()
     if not path.is_file():
@@ -47,21 +52,20 @@ def load_state() -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise RuntimeError(f"Code Browser state could not be read: {exc}") from exc
+        raise RuntimeError(f"Could not read state file {path}: {exc}") from exc
     if not isinstance(value, dict) or value.get("version") != 1:
-        raise RuntimeError("Code Browser state has an unsupported format")
+        raise RuntimeError(f"Code Browser state has an unsupported format: {path}")
     return value
 
 
 def load_loop_state() -> dict[str, Any]:
-    configured = os.environ.get("CODE_BROWSER_LOOP_STATE", "").strip()
-    path = Path(configured).expanduser() if configured else DEFAULT_LOOP_STATE_PATH
+    path = loop_state_path()
     if not path.is_file():
         return {"status": "idle", "rounds": []}
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise RuntimeError(f"Code Browser Loop state could not be read: {exc}") from exc
+        raise RuntimeError(f"Could not read Loop state file {path}: {exc}") from exc
     return value if isinstance(value, dict) else {"status": "idle", "rounds": []}
 
 
@@ -204,7 +208,11 @@ def get_loop_status() -> dict[str, Any]:
             "changes": item.get("changes", []),
             "tests": item.get("tests"),
             "commit": item.get("commit"),
-            "models": [analysis.get("model") for analysis in item.get("analyses", []) if isinstance(analysis, dict)],
+            "models": [
+                analysis.get("model")
+                for analysis in item.get("analyses", [])
+                if isinstance(analysis, dict) and analysis.get("model") is not None
+            ],
         })
     return {
         "id": job.get("id"),
@@ -247,10 +255,17 @@ def get_loop_round(round_number: int) -> dict[str, Any]:
     raise ValueError(f"Loop round not found: {round_number}")
 
 
+def _valid_port(value: str) -> int:
+    port = int(value)
+    if not (1 <= port <= 65535):
+        raise argparse.ArgumentTypeError(f"port must be between 1 and 65535, got {port}")
+    return port
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Ollama Code Browser read-only MCP server")
     parser.add_argument("--host", default=os.environ.get("CODE_BROWSER_MCP_HOST", "127.0.0.1"))
-    parser.add_argument("--port", type=int, default=int(os.environ.get("CODE_BROWSER_MCP_PORT", "8766")))
+    parser.add_argument("--port", type=_valid_port, default=int(os.environ.get("CODE_BROWSER_MCP_PORT", "8766")))
     return parser.parse_args()
 
 
