@@ -1575,9 +1575,9 @@ async function analyzeProject(relativePath = '') {
   const targetPath = normalizedPath ? `${state.config.root}/${normalizedPath}` : state.config.root;
   state.lastMode = 'project';
   state.reportTarget = {name: targetName, path: targetPath};
-  const cacheKey = `project-summary:v2:${state.language}:${targetPath}`;
+  const cacheKey = `project-summary:v3:${state.language}:${targetPath}`;
   const cached = sessionStorage.getItem(cacheKey);
-  if (cached) {
+  if (cached && /```(?:relationship|diagram)\s*\n/i.test(cached)) {
     const cachedTab = createAnalysisTab('project', state.reportTarget);
     cachedTab.content = cached;
     cachedTab.metaText = t('cachedSummary');
@@ -1585,6 +1585,7 @@ async function analyzeProject(relativePath = '') {
     activateAnalysisTab(cachedTab.id);
     return;
   }
+  if (cached) sessionStorage.removeItem(cacheKey);
   const analysisTab = createAnalysisTab('project', state.reportTarget);
   const controller = new AbortController();
   analysisTab.controller = controller;
