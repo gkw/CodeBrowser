@@ -32,6 +32,16 @@ class DummyServer:
 
 
 class LoopManagerTests(unittest.TestCase):
+    def test_unittest_project_uses_stdlib_runner(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "tests").mkdir()
+            (root / "tests" / "test_sample.py").write_text("import unittest\n", encoding="utf-8")
+            self.assertEqual(
+                server.detected_test_command(root),
+                ["python3", "-m", "unittest", "discover", "-s", "tests"],
+            )
+
     def test_non_git_project_gets_safe_local_initial_commit(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

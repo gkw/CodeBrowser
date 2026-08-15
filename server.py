@@ -1178,9 +1178,12 @@ def detected_test_command(repository: Path) -> list[str] | None:
                 return ["npm", "test"]
         except (OSError, json.JSONDecodeError):
             pass
-    if (repository / "pyproject.toml").is_file() or (repository / "pytest.ini").is_file() or (repository / "tests").is_dir():
-        python = repository / ".venv" / "bin" / "python"
-        return [str(python) if python.is_file() else "python3", "-m", "pytest"]
+    python = repository / ".venv" / "bin" / "python"
+    python_command = str(python) if python.is_file() else "python3"
+    if (repository / "pyproject.toml").is_file() or (repository / "pytest.ini").is_file():
+        return [python_command, "-m", "pytest"]
+    if (repository / "tests").is_dir():
+        return [python_command, "-m", "unittest", "discover", "-s", "tests"]
     if (repository / "go.mod").is_file():
         return ["go", "test", "./..."]
     return None
