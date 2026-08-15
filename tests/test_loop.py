@@ -7,6 +7,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -32,6 +33,73 @@ class DummyServer:
 
 
 class LoopManagerTests(unittest.TestCase):
+    def test_static_symlink_outside_directory_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            static = root / "static"
+            static.mkdir()
+            inside = static / "app.js"
+            inside.write_text("safe", encoding="utf-8")
+            outside = root / "secret.txt"
+            outside.write_text("secret", encoding="utf-8")
+            (static / "escape.txt").symlink_to(outside)
+            self.assertEqual(server.resolve_static_file("app.js", static), inside)
+            self.assertIsNone(server.resolve_static_file("escape.txt", static))
+            self.assertIsNone(server.resolve_static_file("../secret.txt", static))
+
+    def test_analysis_size_is_checked_before_read(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "large.py"
+            with path.open("wb") as output:
+                output.truncate(server.MAX_FILE_BYTES + 1)
+            with self.assertRaisesRegex(ValueError, "too large"):
+                server.read_analysis_source(path, "en")
+
+    def test_ollama_target_validation_rejects_unknown_host_and_bad_model(self) -> None:
+        host = server.configured_ollama_hosts()[0]
+        server.validate_ollama_target(host, "gpt-oss:120b")
+        with self.assertRaisesRegex(ConnectionError, "not configured"):
+            server.validate_ollama_target("http://attacker.invalid:11434", "gpt-oss:120b")
+        with self.assertRaisesRegex(ValueError, "Invalid Ollama model"):
+            server.validate_ollama_target(host, "bad\nmodel")
+
+    def test_root_change_and_safe_path_use_consistent_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as first_directory, tempfile.TemporaryDirectory() as second_directory:
+            first = Path(first_directory).resolve()
+            second = Path(second_directory).resolve()
+            (first / "one.py").write_text("one = 1\n", encoding="utf-8")
+            (second / "two.py").write_text("two = 2\n", encoding="utf-8")
+            app = object.__new__(server.CodeBrowserServer)
+            app.root_lock = threading.RLock()
+            app._root = first
+            path, root = app.safe_path_with_root("one.py")
+            self.assertEqual((path, root), (first / "one.py", first))
+            app.change_root(second)
+            path, root = app.safe_path_with_root("two.py")
+            self.assertEqual((path, root), (second / "two.py", second))
+            with self.assertRaises(PermissionError):
+                app.safe_path("../one.py")
+
+    def test_round_updates_remain_serializable_during_concurrent_status_reads(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.object(server, "LOOP_STATE_PATH", root / "loop-state.json"):
+                manager = server.LoopManager(DummyServer(root))
+                round_result = {"number": 1, "status": "analyzing", "analyses": []}
+                with manager.lock:
+                    manager.job = {"id": "test", "status": "running", "rounds": [round_result]}
+
+                def update_round() -> None:
+                    for index in range(100):
+                        manager._update_round(round_result, analyses=[{"index": index}])
+
+                writer = threading.Thread(target=update_round)
+                writer.start()
+                for _ in range(100):
+                    json.dumps(manager.status())
+                writer.join()
+                self.assertEqual(manager.status()["rounds"][0]["analyses"][0]["index"], 99)
+
     def test_loop_snapshot_includes_only_python_files(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

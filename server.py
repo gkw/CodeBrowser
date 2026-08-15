@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import difflib
 import hashlib
@@ -26,7 +27,7 @@ from urllib.request import Request, urlopen
 
 
 APP_DIR = Path(__file__).resolve().parent
-STATIC_DIR = APP_DIR / "static"
+STATIC_DIR = (APP_DIR / "static").resolve()
 MCP_STATE_PATH = APP_DIR / ".code-browser-mcp-state.json"
 LOOP_STATE_PATH = APP_DIR / ".code-browser-loop-state.json"
 MAX_FILE_BYTES = 1_500_000
@@ -43,6 +44,10 @@ OLLAMA_CLOUD_HOST = "https://ollama.com"
 LOCAL_CLOUD_SUFFIX = ":cloud"
 PAID_CLOUD_MODELS = {"kimi-k3"}
 LOOP_SOURCE_SUFFIXES = {".py"}
+OLLAMA_MODEL_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
+OLLAMA_PROBE_TTL_SECONDS = 30
+_ollama_probe_lock = threading.RLock()
+_ollama_probe_cache: tuple[float, str, list[dict]] | None = None
 LOCAL_REPOSITORY_EXCLUDES = """# Ollama Code Browser: local-only safety exclusions
 .env
 .env.*
@@ -88,6 +93,18 @@ def loop_text(language: str, japanese: str, english: str) -> str:
     return english if language == "en" else japanese
 
 
+def read_analysis_source(path: Path, language: str) -> bytes:
+    if path.stat().st_size > MAX_FILE_BYTES:
+        raise ValueError("Analysis target is too large" if language == "en" else "解析対象のファイルが大きすぎます")
+    return path.read_bytes()
+
+
+def resolve_static_file(relative: str, static_dir: Path = STATIC_DIR) -> Path | None:
+    base = static_dir.resolve()
+    path = (base / relative).resolve()
+    return path if base in path.parents and path.is_file() else None
+
+
 def load_env_file(path: Path) -> None:
     """Load simple KEY=VALUE entries without adding a dotenv dependency."""
     if not path.is_file():
@@ -124,16 +141,32 @@ class CodeBrowserServer(ThreadingHTTPServer):
 
     def __init__(self, address: tuple[str, int], root: Path):
         super().__init__(address, RequestHandler)
-        self.root = root.resolve()
+        self.root_lock = threading.RLock()
+        self._root = root.resolve()
         self.read_only = True
         self.loop_manager = LoopManager(self)
 
     def safe_path(self, relative: str) -> Path:
-        relative = unquote(relative).lstrip("/")
-        candidate = (self.root / relative).resolve()
-        if candidate != self.root and self.root not in candidate.parents:
-            raise PermissionError("閲覧ルート外のパスにはアクセスできません")
+        candidate, _ = self.safe_path_with_root(relative)
         return candidate
+
+    def safe_path_with_root(self, relative: str) -> tuple[Path, Path]:
+        relative = unquote(relative).lstrip("/")
+        with self.root_lock:
+            root = self._root
+            candidate = (root / relative).resolve()
+            if candidate != root and root not in candidate.parents:
+                raise PermissionError("閲覧ルート外のパスにはアクセスできません")
+            return candidate, root
+
+    @property
+    def root(self) -> Path:
+        with self.root_lock:
+            return self._root
+
+    def change_root(self, root: Path) -> None:
+        with self.root_lock:
+            self._root = root.resolve()
 
 
 class RequestHandler(BaseHTTPRequestHandler):
@@ -158,10 +191,11 @@ class RequestHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         try:
             if parsed.path == "/api/config":
+                root = self.server.root
                 self.send_json(200, {
-                    "root": str(self.server.root),
-                    "rootName": self.server.root.name or str(self.server.root),
-                    "parent": str(self.server.root.parent),
+                    "root": str(root),
+                    "rootName": root.name or str(root),
+                    "parent": str(root.parent),
                     "maxFileBytes": MAX_FILE_BYTES,
                     "readOnly": self.server.read_only,
                 })
@@ -185,8 +219,8 @@ class RequestHandler(BaseHTTPRequestHandler):
                 self.serve_static("index.html")
             else:
                 self.send_error_json(404, "Not found")
-        except (BrokenPipeError, ConnectionResetError):
-            pass
+        except (BrokenPipeError, ConnectionResetError) as exc:
+            self.log_error("client disconnected during GET %s: %s", parsed.path, exc)
         except PermissionError as exc:
             self.send_error_json(403, str(exc))
         except ValueError as exc:
@@ -232,8 +266,8 @@ class RequestHandler(BaseHTTPRequestHandler):
             self.send_error_json(403, str(exc))
         except FileNotFoundError:
             self.send_error_json(404, "ファイルが見つかりません")
-        except (BrokenPipeError, ConnectionResetError):
-            pass
+        except (BrokenPipeError, ConnectionResetError) as exc:
+            self.log_error("client disconnected during POST %s: %s", endpoint, exc)
         except ConnectionError as exc:
             self.send_json(503, {"error": "Ollama に接続できません", "detail": str(exc)})
         except OSError as exc:
@@ -253,7 +287,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             raise ValueError("指定されたパスはディレクトリではありません")
         if not os.access(new_root, os.R_OK | os.X_OK):
             raise PermissionError("このディレクトリを読み取る権限がありません")
-        self.server.root = new_root
+        self.server.change_root(new_root)
         self.send_json(200, {
             "root": str(new_root),
             "rootName": new_root.name or str(new_root),
@@ -339,7 +373,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         self.send_json(202, result)
 
     def handle_tree(self, relative: str) -> None:
-        directory = self.server.safe_path(relative)
+        directory, root = self.server.safe_path_with_root(relative)
         if not directory.is_dir():
             raise FileNotFoundError
         items = []
@@ -356,7 +390,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                 continue
             try:
                 resolved = child.resolve()
-                if resolved != self.server.root and self.server.root not in resolved.parents:
+                if resolved != root and root not in resolved.parents:
                     continue
                 is_dir = child.is_dir()
                 size = child.stat().st_size if child.is_file() else None
@@ -364,7 +398,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                 continue
             items.append({
                 "name": child.name,
-                "path": child.relative_to(self.server.root).as_posix(),
+                "path": child.relative_to(root).as_posix(),
                 "type": "directory" if is_dir else "file",
                 "size": size,
             })
@@ -467,22 +501,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         self.send_json(200, result)
 
     def probe_ollama(self) -> tuple[str, list[dict]]:
-        errors = []
-        for host in configured_ollama_hosts():
-            try:
-                request = Request(
-                    f"{host}/api/tags",
-                    headers=ollama_headers(host, {"Accept": "application/json"}),
-                )
-                timeout = 15 if host == OLLAMA_CLOUD_HOST else 3
-                with urlopen(request, timeout=timeout) as response:
-                    models = json.load(response).get("models", [])
-                if host.endswith("localhost:11434"):
-                    models = [m for m in models if m.get("name", "").endswith(LOCAL_CLOUD_SUFFIX)]
-                return host, models
-            except (URLError, HTTPError, TimeoutError, socket.timeout, json.JSONDecodeError) as exc:
-                errors.append(f"{host}: {exc}")
-        raise ConnectionError(" / ".join(errors))
+        return probe_ollama_models()
 
     def handle_models(self) -> None:
         try:
@@ -581,24 +600,8 @@ class RequestHandler(BaseHTTPRequestHandler):
             {"role": "user", "content": prompt},
         ], language)
 
-    def stream_project_summary(self, model: str, messages: list[dict[str, str]], language: str) -> None:
-        host, models = self.probe_ollama()
-        available = allowed_model_names(host, models)
-        if not model or model not in available:
-            model = choose_model(available) or ""
-        if not model:
-            raise ValueError("利用可能な Ollama モデルがありません")
-        request = Request(
-            f"{host}/api/chat",
-            data=json_bytes({
-                "model": model,
-                "stream": True,
-                "messages": messages,
-                "options": {"temperature": 0.2, "num_ctx": 32768},
-            }),
-            headers=ollama_headers(host, {"Content-Type": "application/json"}),
-            method="POST",
-        )
+    def stream_ollama_chat(self, host: str, model: str, payload: dict, language: str) -> None:
+        request = ollama_request(host, "/api/chat", payload=payload, headers={"Content-Type": "application/json"})
         try:
             response = urlopen(request, timeout=300)
         except HTTPError as exc:
@@ -639,6 +642,20 @@ class RequestHandler(BaseHTTPRequestHandler):
                 except json.JSONDecodeError:
                     continue
 
+    def stream_project_summary(self, model: str, messages: list[dict[str, str]], language: str) -> None:
+        host, models = self.probe_ollama()
+        available = allowed_model_names(host, models)
+        if not model or model not in available:
+            model = choose_model(available) or ""
+        if not model:
+            raise ValueError("No Ollama models are available" if language == "en" else "利用可能な Ollama モデルがありません")
+        self.stream_ollama_chat(host, model, {
+            "model": model,
+            "stream": True,
+            "messages": messages,
+            "options": {"temperature": 0.2, "num_ctx": 32768},
+        }, language)
+
     def handle_analyze(self, payload: dict) -> None:
         relative = str(payload.get("path", ""))
         mode = str(payload.get("mode", "explain"))
@@ -648,9 +665,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         path = self.server.safe_path(relative)
         if not path.is_file():
             raise FileNotFoundError
-        raw = path.read_bytes()
-        if len(raw) > MAX_FILE_BYTES:
-            raise ValueError("解析対象のファイルが大きすぎます")
+        raw = read_analysis_source(path, language)
         content = raw.decode("utf-8", errors="replace")
         target = selection.strip() or content
         if not target:
@@ -700,57 +715,11 @@ class RequestHandler(BaseHTTPRequestHandler):
             ],
             "options": {"temperature": 0.2, "num_ctx": 32768},
         }
-        request = Request(
-            f"{host}/api/chat",
-            data=json_bytes(ollama_payload),
-            headers=ollama_headers(host, {"Content-Type": "application/json"}),
-            method="POST",
-        )
-        try:
-            response = urlopen(request, timeout=300)
-        except HTTPError as exc:
-            if exc.code == 402:
-                message = (
-                    "Ollama Cloud requires payment or available credits for this model. Choose another model or check your Ollama plan."
-                    if language == "en" else
-                    "このモデルの実行にはOllama Cloudの支払いまたは利用可能なクレジットが必要です。別のモデルを選ぶか、Ollamaのプランを確認してください。"
-                )
-                self.send_error_json(402, message)
-            else:
-                message = f"Ollama request failed (HTTP {exc.code})" if language == "en" else f"Ollamaの実行に失敗しました（HTTP {exc.code}）"
-                self.send_error_json(502, message)
-            return
-        except (URLError, TimeoutError, socket.timeout) as exc:
-            message = f"Ollama request failed: {exc}" if language == "en" else f"Ollamaの実行に失敗しました: {exc}"
-            self.send_error_json(502, message)
-            return
-
-        self.send_response(200)
-        self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Accel-Buffering", "no")
-        self.end_headers()
-        self.wfile.write(json_bytes({"meta": {"host": host, "model": model}}) + b"\n")
-        self.wfile.flush()
-        with response:
-            for line in response:
-                if not line.strip():
-                    continue
-                try:
-                    chunk = json.loads(line)
-                    output = {
-                        "content": chunk.get("message", {}).get("content", ""),
-                        "thinking": chunk.get("message", {}).get("thinking", ""),
-                        "done": chunk.get("done", False),
-                    }
-                    self.wfile.write(json_bytes(output) + b"\n")
-                    self.wfile.flush()
-                except json.JSONDecodeError:
-                    continue
+        self.stream_ollama_chat(host, model, ollama_payload, language)
 
     def serve_static(self, relative: str) -> None:
-        path = (STATIC_DIR / relative).resolve()
-        if STATIC_DIR not in path.parents or not path.is_file():
+        path = resolve_static_file(relative)
+        if path is None:
             self.send_error_json(404, "Not found")
             return
         body = path.read_bytes()
@@ -780,9 +749,9 @@ def build_project_snapshot(root: Path, max_depth: int = 4, max_entries: int = 12
     """Build a bounded tree plus safe project metadata for LLM summarization."""
     entries: list[str] = []
     metadata_paths: list[Path] = []
-    queue: list[tuple[Path, int]] = [(root, 0)]
+    queue: deque[tuple[Path, int]] = deque([(root, 0)])
     while queue and len(entries) < max_entries:
-        directory, depth = queue.pop(0)
+        directory, depth = queue.popleft()
         try:
             children = sorted(directory.iterdir(), key=lambda p: (not p.is_dir(), p.name.casefold()))
         except (OSError, PermissionError):
@@ -910,31 +879,37 @@ def resolve_code_reference(root: Path, reference: str, current: str = "") -> dic
         if current_path.is_file() and root in current_path.parents:
             candidates.append(current_path)
     candidates.extend(path for path in iter_source_files(root) if path not in candidates)
-    patterns = [
-        re.compile(rf"^\s*(?:async\s+)?def\s+{re.escape(symbol)}\b"),
-        re.compile(rf"^\s*(?:export\s+)?(?:async\s+)?function\s+{re.escape(symbol)}\b"),
-        re.compile(rf"^\s*(?:export\s+)?(?:const|let|var)\s+{re.escape(symbol)}\s*="),
-        re.compile(rf"^\s*(?:pub\s+)?fn\s+{re.escape(symbol)}\b"),
-        re.compile(rf"^\s*func\s+(?:\([^)]*\)\s*)?{re.escape(symbol)}\b"),
-        re.compile(rf"^\s*(?:export\s+)?class\s+{re.escape(symbol)}\b"),
-        re.compile(rf"^\s*(?:async\s+)?{re.escape(symbol)}\s*\([^)]*\)\s*(?:\{{|:|=>)"),
-    ]
+    escaped = re.escape(symbol)
+    symbol_pattern = re.compile(
+        rf"^\s*(?:"
+        rf"(?:async\s+)?def\s+{escaped}\b|"
+        rf"(?:export\s+)?(?:async\s+)?function\s+{escaped}\b|"
+        rf"(?:export\s+)?(?:const|let|var)\s+{escaped}\s*=|"
+        rf"(?:pub\s+)?fn\s+{escaped}\b|"
+        rf"func\s+(?:\([^)]*\)\s*)?{escaped}\b|"
+        rf"(?:export\s+)?class\s+{escaped}\b|"
+        rf"(?:async\s+)?{escaped}\s*\([^)]*\)\s*(?:\{{|:|=>)"
+        rf")"
+    )
     for path in candidates[:2500]:
         try:
             if path.stat().st_size > MAX_FILE_BYTES:
                 continue
-            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+            source = path.open("r", encoding="utf-8", errors="replace")
         except OSError:
             continue
-        for index, line in enumerate(lines, 1):
-            if any(pattern.search(line) for pattern in patterns):
-                return {
-                    "path": path.relative_to(root).as_posix(),
-                    "line": index,
-                    "kind": "symbol",
-                    "reference": reference,
-                    "preview": line.strip()[:240],
-                }
+        with source:
+            for index, line in enumerate(source, 1):
+                if index > 500:
+                    break
+                if symbol_pattern.search(line):
+                    return {
+                        "path": path.relative_to(root).as_posix(),
+                        "line": index,
+                        "kind": "symbol",
+                        "reference": reference,
+                        "preview": line.strip()[:240],
+                    }
     return None
 
 
@@ -961,7 +936,10 @@ def iter_source_files(root: Path, include_all_text: bool = False):
 
 def configured_ollama_hosts() -> list[str]:
     """Use Ollama Cloud directly whenever an API key is configured."""
-    return [OLLAMA_CLOUD_HOST] if os.environ.get("OLLAMA_API_KEY") else OLLAMA_HOSTS
+    if os.environ.get("OLLAMA_API_KEY"):
+        return [OLLAMA_CLOUD_HOST]
+    configured = os.environ.get("OLLAMA_HOSTS", "").strip()
+    return [value.strip().rstrip("/") for value in configured.split(",") if value.strip()] or OLLAMA_HOSTS
 
 
 def allowed_model_names(host: str, models: list[dict]) -> list[str]:
@@ -975,6 +953,47 @@ def allowed_model_names(host: str, models: list[dict]) -> list[str]:
             continue
         result.append(name)
     return result
+
+
+def validate_ollama_target(host: str, model: str | None = None) -> None:
+    if host.rstrip("/") not in {value.rstrip("/") for value in configured_ollama_hosts()}:
+        raise ConnectionError(f"Ollama host is not configured: {host}")
+    if model is not None and not OLLAMA_MODEL_PATTERN.fullmatch(model):
+        raise ValueError(f"Invalid Ollama model name: {model}")
+
+
+def ollama_request(host: str, endpoint: str, *, payload: dict | None = None, headers: dict[str, str] | None = None) -> Request:
+    model = str(payload.get("model", "")) if payload else None
+    validate_ollama_target(host, model)
+    request_headers = ollama_headers(host, headers)
+    return Request(
+        f"{host.rstrip('/')}/{endpoint.lstrip('/')}",
+        data=json_bytes(payload) if payload is not None else None,
+        headers=request_headers,
+        method="POST" if payload is not None else "GET",
+    )
+
+
+def probe_ollama_models(*, use_cache: bool = True) -> tuple[str, list[dict]]:
+    global _ollama_probe_cache
+    now = time.monotonic()
+    with _ollama_probe_lock:
+        if use_cache and _ollama_probe_cache and now - _ollama_probe_cache[0] < OLLAMA_PROBE_TTL_SECONDS:
+            return _ollama_probe_cache[1], list(_ollama_probe_cache[2])
+    errors = []
+    for host in configured_ollama_hosts():
+        try:
+            timeout = 15 if host == OLLAMA_CLOUD_HOST else 3
+            with urlopen(ollama_request(host, "/api/tags", headers={"Accept": "application/json"}), timeout=timeout) as response:
+                models = json.load(response).get("models", [])
+            if host.endswith("localhost:11434"):
+                models = [item for item in models if item.get("name", "").endswith(LOCAL_CLOUD_SUFFIX)]
+            with _ollama_probe_lock:
+                _ollama_probe_cache = (time.monotonic(), host, list(models))
+            return host, models
+        except (URLError, HTTPError, TimeoutError, socket.timeout, json.JSONDecodeError, ConnectionError, ValueError) as exc:
+            errors.append(f"{host}: {exc}")
+    raise ConnectionError(" / ".join(errors))
 
 
 def run_git(repository: Path, arguments: list[str]) -> str:
@@ -1066,7 +1085,10 @@ def initialize_local_repository(root: Path, language: str = "ja") -> Path:
 def atomic_write_text(path: Path, content: str) -> None:
     encoded = content.encode("utf-8")
     temporary_name = ""
-    mode = path.stat().st_mode if path.exists() else 0o644
+    try:
+        mode = path.stat().st_mode
+    except FileNotFoundError:
+        mode = 0o644
     try:
         with tempfile.NamedTemporaryFile("wb", dir=path.parent, prefix=f".{path.name}.", delete=False) as temporary:
             temporary.write(encoded)
@@ -1081,19 +1103,8 @@ def atomic_write_text(path: Path, content: str) -> None:
 
 
 def discover_ollama_models() -> tuple[str, list[str]]:
-    errors = []
-    for host in configured_ollama_hosts():
-        try:
-            request = Request(f"{host}/api/tags", headers=ollama_headers(host, {"Accept": "application/json"}))
-            timeout = 15 if host == OLLAMA_CLOUD_HOST else 3
-            with urlopen(request, timeout=timeout) as response:
-                models = json.load(response).get("models", [])
-            if host.endswith("localhost:11434"):
-                models = [item for item in models if item.get("name", "").endswith(LOCAL_CLOUD_SUFFIX)]
-            return host, allowed_model_names(host, models)
-        except (URLError, HTTPError, TimeoutError, socket.timeout, json.JSONDecodeError) as exc:
-            errors.append(f"{host}: {exc}")
-    raise ConnectionError(" / ".join(errors))
+    host, models = probe_ollama_models()
+    return host, allowed_model_names(host, models)
 
 
 def call_ollama_text(host: str, model: str, messages: list[dict[str, str]], *, json_format: bool = False) -> str:
@@ -1105,12 +1116,7 @@ def call_ollama_text(host: str, model: str, messages: list[dict[str, str]], *, j
     }
     if json_format:
         payload["format"] = "json"
-    request = Request(
-        f"{host}/api/chat",
-        data=json_bytes(payload),
-        headers=ollama_headers(host, {"Content-Type": "application/json"}),
-        method="POST",
-    )
+    request = ollama_request(host, "/api/chat", payload=payload, headers={"Content-Type": "application/json"})
     try:
         with urlopen(request, timeout=300) as response:
             result = json.load(response)
@@ -1233,6 +1239,12 @@ class LoopManager:
             self.job["updatedAt"] = datetime.now(timezone.utc).isoformat()
             self._save()
 
+    def _update_round(self, round_result: dict, **values: object) -> None:
+        with self.lock:
+            round_result.update(values)
+            self.job["updatedAt"] = datetime.now(timezone.utc).isoformat()
+            self._save()
+
     def status(self) -> dict:
         with self.lock:
             return json.loads(json.dumps(self.job, ensure_ascii=False))
@@ -1344,7 +1356,7 @@ class LoopManager:
                             analyses.append({"model": model, "status": "complete", "content": future.result()[:20_000]})
                         except Exception as exc:
                             analyses.append({"model": model, "status": "failed", "content": str(exc)})
-                round_result["analyses"] = analyses
+                self._update_round(round_result, analyses=analyses)
                 successful = [item for item in analyses if item["status"] == "complete" and item["content"]]
                 if not successful:
                     raise RuntimeError(loop_text(language, "すべてのモデル解析が失敗しました", "All model analyses failed"))
@@ -1378,14 +1390,14 @@ class LoopManager:
                         break
                     except Exception as exc:
                         integration_attempts.append({"model": integration_model, "status": "failed", "error": str(exc)[:4000]})
-                round_result["integrationAttempts"] = integration_attempts
+                self._update_round(round_result, integrationAttempts=integration_attempts)
                 if integrated is None:
                     details = "; ".join(f"{item['model']}: {item['error']}" for item in integration_attempts)
                     raise RuntimeError(loop_text(language, f"すべての統合モデルが不正な変更を返しました: {details}", f"All integration models returned invalid changes: {details}"))
-                round_result["summary"] = str(integrated.get("summary", ""))[:10_000]
+                self._update_round(round_result, summary=str(integrated.get("summary", ""))[:10_000])
                 changes = prepared_changes
                 if not changes:
-                    round_result["status"] = "no_changes"
+                    self._update_round(round_result, status="no_changes")
                     self._update(status="completed", message=loop_text(language, f"Round {round_number}: 安全に適用できる変更はありませんでした", f"Round {round_number}: no further safe changes were found"))
                     return
                 if self.server.read_only:
@@ -1440,10 +1452,10 @@ class LoopManager:
                     restore_loop_files(originals)
                     raise
                 if not applied_paths:
-                    round_result["status"] = "no_changes"
+                    self._update_round(round_result, status="no_changes")
                     self._update(status="completed", message=loop_text(language, f"Round {round_number}: 実質的な変更はありませんでした", f"Round {round_number}: no effective changes were produced"))
                     return
-                round_result["changes"] = applied_records
+                self._update_round(round_result, changes=applied_records)
                 self._update(message=loop_text(language, f"Round {round_number}: テスト実行中", f"Round {round_number}: running tests"))
                 command = detected_test_command(repository)
                 if command:
@@ -1456,24 +1468,25 @@ class LoopManager:
                             "status": "passed" if test.returncode == 0 else "failed",
                         }
                         if test.returncode != 0:
-                            round_result["tests"] = test_result
+                            self._update_round(round_result, tests=test_result)
                             restore_loop_files(originals)
                             raise RuntimeError(loop_text(language, f"テストが失敗したため変更を元に戻しました（exit {test.returncode}）", f"Tests failed, so the changes were rolled back (exit {test.returncode})"))
                     except subprocess.TimeoutExpired as exc:
                         output = ((exc.stdout or "") + (exc.stderr or "")) if isinstance(exc.stdout, str) else ""
                         test_result = {"command": command, "exitCode": None, "output": output[-30_000:], "status": "timed_out"}
-                        round_result["tests"] = test_result
+                        self._update_round(round_result, tests=test_result)
                         restore_loop_files(originals)
                         raise RuntimeError(loop_text(language, "テストがタイムアウトしたため変更を元に戻しました", "Tests timed out, so the changes were rolled back"))
                 else:
                     test_result = {"command": [], "exitCode": None, "output": loop_text(language, "テスト設定を検出できませんでした", "No test configuration was detected"), "status": "skipped"}
-                round_result["tests"] = test_result
+                self._update_round(round_result, tests=test_result)
                 run_git(repository, ["add", "--", *applied_paths])
                 commit_output = run_git(repository, ["commit", "-m", f"Ollama loop round {round_number}: automated improvements", "--", *applied_paths])
-                round_result["commit"] = commit_output.strip().splitlines()[0] if commit_output.strip() else ""
-                round_result["status"] = "complete"
-                with self.lock:
-                    self._save()
+                self._update_round(
+                    round_result,
+                    commit=commit_output.strip().splitlines()[0] if commit_output.strip() else "",
+                    status="complete",
+                )
                 if round_number < maximum_rounds:
                     self._update(message=loop_text(language, f"Round {round_number + 1}を解析中", f"Analyzing Round {round_number + 1}"))
             self._update(status="completed", message=loop_text(language, f"{maximum_rounds}ラウンドのLoopが完了しました", f"Completed all {maximum_rounds} Loop rounds"))
@@ -1481,8 +1494,7 @@ class LoopManager:
             with self.lock:
                 for round_result in reversed(self.job.get("rounds", [])):
                     if round_result.get("status") == "analyzing":
-                        round_result["status"] = "failed"
-                        round_result["error"] = str(exc)
+                        round_result.update(status="failed", error=str(exc))
                         break
             self._update(status="failed", message=str(exc))
 
