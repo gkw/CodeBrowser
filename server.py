@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import difflib
 import hashlib
 import json
+import logging
 import mimetypes
 import os
 from pathlib import Path
@@ -46,8 +47,16 @@ PAID_CLOUD_MODELS = {"kimi-k3"}
 LOOP_SOURCE_SUFFIXES = {".py"}
 OLLAMA_MODEL_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
 OLLAMA_PROBE_TTL_SECONDS = 30
+POST_REQUEST_HEADER = "X-Requested-With"
+POST_REQUEST_HEADER_VALUE = "CodeBrowser"
+CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data:; connect-src 'self'; object-src 'none'; "
+    "base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+)
 _ollama_probe_lock = threading.RLock()
-_ollama_probe_cache: tuple[float, str, list[dict]] | None = None
+_ollama_probe_cache: tuple[float, tuple[str, ...], str, list[dict]] | None = None
+LOGGER = logging.getLogger("code_browser")
 LOCAL_REPOSITORY_EXCLUDES = """# Ollama Code Browser: local-only safety exclusions
 .env
 .env.*
@@ -99,6 +108,31 @@ def read_analysis_source(path: Path, language: str) -> bytes:
     return path.read_bytes()
 
 
+def is_probably_binary(raw: bytes) -> bool:
+    """Reject binary data without relying on often-inaccurate filename MIME types."""
+    sample = raw[:8192]
+    if not sample:
+        return False
+    if b"\x00" in sample:
+        return True
+    control_bytes = sum(byte < 32 and byte not in {8, 9, 10, 12, 13} for byte in sample)
+    return control_bytes / len(sample) > 0.10
+
+
+def atomic_write_json(path: Path, value: object, prefix: str) -> None:
+    temporary_name = ""
+    try:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, prefix=prefix, delete=False) as temporary:
+            json.dump(value, temporary, ensure_ascii=False, indent=2)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+            temporary_name = temporary.name
+        os.replace(temporary_name, path)
+    finally:
+        if temporary_name and os.path.exists(temporary_name):
+            os.unlink(temporary_name)
+
+
 def resolve_static_file(relative: str, static_dir: Path = STATIC_DIR) -> Path | None:
     base = static_dir.resolve()
     path = (base / relative).resolve()
@@ -142,8 +176,10 @@ class CodeBrowserServer(ThreadingHTTPServer):
     def __init__(self, address: tuple[str, int], root: Path):
         super().__init__(address, RequestHandler)
         self.root_lock = threading.RLock()
+        self.read_only_lock = threading.RLock()
+        self.mcp_state_lock = threading.Lock()
         self._root = root.resolve()
-        self.read_only = True
+        self._read_only = True
         self.loop_manager = LoopManager(self)
 
     def safe_path(self, relative: str) -> Path:
@@ -168,12 +204,28 @@ class CodeBrowserServer(ThreadingHTTPServer):
         with self.root_lock:
             self._root = root.resolve()
 
+    @property
+    def read_only(self) -> bool:
+        with self.read_only_lock:
+            return self._read_only
+
+    @read_only.setter
+    def read_only(self, value: bool) -> None:
+        with self.read_only_lock:
+            self._read_only = value
+
 
 class RequestHandler(BaseHTTPRequestHandler):
     server: CodeBrowserServer
 
     def log_message(self, fmt: str, *args: object) -> None:
-        print(f"[{self.log_date_time_string()}] {fmt % args}")
+        LOGGER.info("client=%s request=%s", self.client_address[0], fmt % args)
+
+    def end_headers(self) -> None:
+        self.send_header("Content-Security-Policy", CONTENT_SECURITY_POLICY)
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        super().end_headers()
 
     def send_json(self, status: int, value: object) -> None:
         body = json_bytes(value)
@@ -234,6 +286,9 @@ class RequestHandler(BaseHTTPRequestHandler):
         endpoint = urlparse(self.path).path
         if endpoint not in {"/api/analyze", "/api/project-summary", "/api/root", "/api/file/save", "/api/git/commit", "/api/read-only", "/api/mcp-state", "/api/loop/start", "/api/loop/cancel"}:
             self.send_error_json(404, "Not found")
+            return
+        if self.headers.get(POST_REQUEST_HEADER) != POST_REQUEST_HEADER_VALUE:
+            self.send_error_json(403, "このPOSTリクエストはCode Browser画面から送信されていません")
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
@@ -352,17 +407,8 @@ class RequestHandler(BaseHTTPRequestHandler):
             },
             "analyses": clean_analyses,
         }
-        temporary_name = ""
-        try:
-            with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=APP_DIR, prefix=".mcp-state.", delete=False) as temporary:
-                json.dump(state, temporary, ensure_ascii=False, indent=2)
-                temporary.flush()
-                os.fsync(temporary.fileno())
-                temporary_name = temporary.name
-            os.replace(temporary_name, MCP_STATE_PATH)
-        finally:
-            if temporary_name and os.path.exists(temporary_name):
-                os.unlink(temporary_name)
+        with self.server.mcp_state_lock:
+            atomic_write_json(MCP_STATE_PATH, state, ".mcp-state.")
         self.send_json(200, {"synced": True, "analyses": len(clean_analyses), "pinnedProjects": len(clean_pinned)})
 
     def handle_loop_start(self, payload: dict) -> None:
@@ -413,7 +459,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             self.send_error_json(413, f"ファイルが大きすぎます（上限 {MAX_FILE_BYTES // 1_000_000:.1f} MB）")
             return
         raw = path.read_bytes()
-        if b"\x00" in raw[:8192]:
+        if is_probably_binary(raw):
             self.send_error_json(415, "バイナリファイルは表示できません")
             return
         try:
@@ -977,11 +1023,17 @@ def ollama_request(host: str, endpoint: str, *, payload: dict | None = None, hea
 def probe_ollama_models(*, use_cache: bool = True) -> tuple[str, list[dict]]:
     global _ollama_probe_cache
     now = time.monotonic()
+    configured_hosts = tuple(configured_ollama_hosts())
     with _ollama_probe_lock:
-        if use_cache and _ollama_probe_cache and now - _ollama_probe_cache[0] < OLLAMA_PROBE_TTL_SECONDS:
-            return _ollama_probe_cache[1], list(_ollama_probe_cache[2])
+        if (
+            use_cache
+            and _ollama_probe_cache
+            and _ollama_probe_cache[1] == configured_hosts
+            and now - _ollama_probe_cache[0] < OLLAMA_PROBE_TTL_SECONDS
+        ):
+            return _ollama_probe_cache[2], list(_ollama_probe_cache[3])
     errors = []
-    for host in configured_ollama_hosts():
+    for host in configured_hosts:
         try:
             timeout = 15 if host == OLLAMA_CLOUD_HOST else 3
             with urlopen(ollama_request(host, "/api/tags", headers={"Accept": "application/json"}), timeout=timeout) as response:
@@ -989,7 +1041,7 @@ def probe_ollama_models(*, use_cache: bool = True) -> tuple[str, list[dict]]:
             if host.endswith("localhost:11434"):
                 models = [item for item in models if item.get("name", "").endswith(LOCAL_CLOUD_SUFFIX)]
             with _ollama_probe_lock:
-                _ollama_probe_cache = (time.monotonic(), host, list(models))
+                _ollama_probe_cache = (time.monotonic(), configured_hosts, host, list(models))
             return host, models
         except (URLError, HTTPError, TimeoutError, socket.timeout, json.JSONDecodeError, ConnectionError, ValueError) as exc:
             errors.append(f"{host}: {exc}")
@@ -1221,17 +1273,7 @@ class LoopManager:
         return {"status": "idle", "rounds": []}
 
     def _save(self) -> None:
-        temporary_name = ""
-        try:
-            with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=APP_DIR, prefix=".loop-state.", delete=False) as temporary:
-                json.dump(self.job, temporary, ensure_ascii=False, indent=2)
-                temporary.flush()
-                os.fsync(temporary.fileno())
-                temporary_name = temporary.name
-            os.replace(temporary_name, LOOP_STATE_PATH)
-        finally:
-            if temporary_name and os.path.exists(temporary_name):
-                os.unlink(temporary_name)
+        atomic_write_json(LOOP_STATE_PATH, self.job, ".loop-state.")
 
     def _update(self, **values: object) -> None:
         with self.lock:
@@ -1586,6 +1628,7 @@ def choose_model(names: list[str]) -> str | None:
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     parser = argparse.ArgumentParser(description="Ollama Code Browser")
     parser.add_argument("root", nargs="?", default=os.getcwd(), help="閲覧するプロジェクトのルート")
     parser.add_argument("--host", default="127.0.0.1", help="待受ホスト")
@@ -1595,12 +1638,11 @@ def main() -> None:
     if not root.is_dir():
         parser.error(f"フォルダが見つかりません: {root}")
     server = CodeBrowserServer((args.host, args.port), root)
-    print(f"Ollama Code Browser: http://{args.host}:{args.port}")
-    print(f"閲覧ルート: {root}")
+    LOGGER.info("listening=http://%s:%s root=%s", args.host, args.port, root)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\n終了します")
+        LOGGER.info("shutdown requested")
     finally:
         server.server_close()
 

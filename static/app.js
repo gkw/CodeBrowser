@@ -538,7 +538,13 @@ function switchMobilePanel(panel) {
 }
 
 async function api(path, options) {
-  const response = await fetch(path, options);
+  const requestOptions = {...(options || {})};
+  if ((requestOptions.method || 'GET').toUpperCase() === 'POST') {
+    const headers = new Headers(requestOptions.headers || {});
+    headers.set('X-Requested-With', 'CodeBrowser');
+    requestOptions.headers = headers;
+  }
+  const response = await fetch(path, requestOptions);
   if (!response.ok) {
     let message = `${response.status} ${response.statusText}`;
     try { message = (await response.json()).error || message; } catch (_) {}
