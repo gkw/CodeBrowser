@@ -122,6 +122,46 @@ class LoopManagerTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "clean"):
                     manager.start({"path": "", "targetType": "project", "rounds": 3, "models": []})
 
+    def test_invalid_integrator_output_retries_with_next_model(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "sample.py"
+            source.write_text("value = 1\n", encoding="utf-8")
+            git(root, "init")
+            git(root, "config", "user.name", "Loop Test")
+            git(root, "config", "user.email", "loop@example.invalid")
+            git(root, "add", "sample.py")
+            git(root, "commit", "-m", "Initial")
+
+            def fake_model(_host: str, model: str, messages: list[dict[str, str]], *, json_format: bool = False) -> str:
+                if not json_format:
+                    return "Update the value."
+                digest = re.search(r"SHA256: ([0-9a-f]{64})", messages[-1]["content"]).group(1)
+                content = "+value = 2\n+broken = True\n+third = True\n" if model == "model-a" else "value = 2\n"
+                return json.dumps({
+                    "summary": "Retry succeeded",
+                    "changes": [{"path": "sample.py", "originalSha256": digest, "newContent": content, "reason": "Apply valid output"}],
+                })
+
+            with (
+                patch.object(server, "LOOP_STATE_PATH", root / ".git" / "loop-state.json"),
+                patch.object(server, "discover_ollama_models", return_value=("mock://ollama", ["model-a", "model-b"])),
+                patch.object(server, "call_ollama_text", side_effect=fake_model),
+                patch.object(server, "detected_test_command", return_value=None),
+            ):
+                manager = server.LoopManager(DummyServer(root))
+                manager.start({"path": "", "targetType": "project", "rounds": 1, "models": ["model-a", "model-b"], "language": "en"})
+                deadline = time.time() + 10
+                while manager.status().get("status") in {"queued", "running"} and time.time() < deadline:
+                    time.sleep(0.05)
+                result = manager.status()
+
+            self.assertEqual(result["status"], "completed")
+            attempts = result["rounds"][0]["integrationAttempts"]
+            self.assertEqual([(item["model"], item["status"]) for item in attempts], [("model-a", "failed"), ("model-b", "complete")])
+            self.assertEqual(source.read_text(encoding="utf-8"), "value = 2\n")
+            self.assertIn("Ollama loop round 1", git(root, "log", "-1", "--pretty=%s"))
+
     def test_patch_shaped_python_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "差分記号"):
             server.validate_generated_source("sample.py", '"""doc"""\n+value = 1\n+other = 2\n+more = 3\n')

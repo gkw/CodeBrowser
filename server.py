@@ -1327,7 +1327,7 @@ class LoopManager:
                 review_prompt = (
                     f"This is automated improvement round {round_number} of {maximum_rounds}. "
                     "Review only the supplied complete editable files. Identify high-confidence correctness, security, maintainability, or testability improvements that can be implemented now. "
-                    "Be concise, cite exact paths, and do not suggest changes to truncated or absent files.\n\n" + snapshot
+                    f"Be concise, cite exact paths, do not suggest changes to truncated or absent files, and respond in {'English' if language == 'en' else 'Japanese'}.\n\n" + snapshot
                 )
                 analyses: list[dict[str, str]] = []
                 with ThreadPoolExecutor(max_workers=len(models)) as executor:
@@ -1352,20 +1352,37 @@ class LoopManager:
                     return
                 self._update(message=loop_text(language, f"Round {round_number}: 改善案を統合中", f"Round {round_number}: consolidating improvements"))
                 reports = "\n\n---\n\n".join(f"## {item['model']}\n{item['content']}" for item in successful)
+                response_language = "English" if language == "en" else "Japanese"
                 integration_prompt = (
                     "Act as the implementation lead. Based only on the complete files and reviewer reports below, return one JSON object. "
                     "Schema: {\"summary\":string,\"changes\":[{\"path\":string,\"originalSha256\":string,\"newContent\":string,\"reason\":string}]}. "
                     "Paths must be repository-relative and must appear under 'Editable full file'. Preserve behavior unless fixing a supported issue. "
-                    "Return at most 8 files. If no safe change is warranted, return an empty changes array. Do not use markdown fences.\n\n"
+                    f"Return at most 8 files. If no safe change is warranted, return an empty changes array. Do not use markdown fences. Write summary and reason fields in {response_language}.\n\n"
                     + snapshot + "\n\n# Reviewer reports\n" + reports[:45_000]
                 )
-                integrated_text = call_ollama_text(host, models[0], [
-                    {"role": "system", "content": "You produce conservative, machine-applicable source edits as strict JSON."},
-                    {"role": "user", "content": integration_prompt},
-                ], json_format=True)
-                integrated = parse_loop_changes(integrated_text)
+                integrated = None
+                prepared_changes: list[dict] = []
+                integration_attempts: list[dict[str, str]] = []
+                for integration_model in models:
+                    try:
+                        integrated_text = call_ollama_text(host, integration_model, [
+                            {"role": "system", "content": "You produce conservative, machine-applicable source edits as strict JSON."},
+                            {"role": "user", "content": integration_prompt},
+                        ], json_format=True)
+                        candidate = parse_loop_changes(integrated_text)
+                        candidate_changes = candidate.get("changes", [])[:8]
+                        prepared_changes = prepare_loop_changes(candidate_changes, repository, editable_hashes, language)
+                        integrated = candidate
+                        integration_attempts.append({"model": integration_model, "status": "complete", "error": ""})
+                        break
+                    except Exception as exc:
+                        integration_attempts.append({"model": integration_model, "status": "failed", "error": str(exc)[:4000]})
+                round_result["integrationAttempts"] = integration_attempts
+                if integrated is None:
+                    details = "; ".join(f"{item['model']}: {item['error']}" for item in integration_attempts)
+                    raise RuntimeError(loop_text(language, f"すべての統合モデルが不正な変更を返しました: {details}", f"All integration models returned invalid changes: {details}"))
                 round_result["summary"] = str(integrated.get("summary", ""))[:10_000]
-                changes = integrated.get("changes", [])[:8]
+                changes = prepared_changes
                 if not changes:
                     round_result["status"] = "no_changes"
                     self._update(status="completed", message=loop_text(language, f"Round {round_number}: 安全に適用できる変更はありませんでした", f"Round {round_number}: no further safe changes were found"))
@@ -1380,8 +1397,8 @@ class LoopManager:
                     for change in changes:
                         if not isinstance(change, dict):
                             raise ValueError(loop_text(language, "変更項目の形式が不正です", "Invalid change item format"))
-                        requested_relative = str(change.get("path", ""))
-                        relative = resolve_loop_change_path(requested_relative, editable_hashes, language)
+                        relative = str(change.get("path", ""))
+                        requested_relative = str(change.get("requestedPath", relative))
                         path = (repository / relative).resolve()
                         if repository not in path.parents or not path.is_file():
                             raise ValueError(loop_text(language, f"リポジトリ外または存在しないファイルです: {relative}", f"File is outside the repository or does not exist: {relative}"))
@@ -1489,6 +1506,34 @@ def resolve_loop_change_path(requested: str, editable_hashes: dict[str, str], la
     if len(matches) == 1:
         return matches[0]
     raise ValueError(loop_text(language, f"編集許可されていないファイルです: {requested}", f"File is not authorized for editing: {requested}"))
+
+
+def prepare_loop_changes(changes: list, repository: Path, editable_hashes: dict[str, str], language: str = "ja") -> list[dict]:
+    """Validate a complete model proposal without writing any files."""
+    prepared: list[dict] = []
+    for change in changes:
+        if not isinstance(change, dict):
+            raise ValueError(loop_text(language, "変更項目の形式が不正です", "Invalid change item format"))
+        requested = str(change.get("path", ""))
+        relative = resolve_loop_change_path(requested, editable_hashes, language)
+        path = (repository / relative).resolve()
+        if repository not in path.parents or not path.is_file():
+            raise ValueError(loop_text(language, f"リポジトリ外または存在しないファイルです: {relative}", f"File is outside the repository or does not exist: {relative}"))
+        raw = path.read_bytes()
+        actual_hash = hashlib.sha256(raw).hexdigest()
+        expected_hash = str(change.get("originalSha256", ""))
+        if actual_hash != editable_hashes[relative] or expected_hash != actual_hash:
+            raise ValueError(loop_text(language, f"解析後に変更されたファイルです: {relative}", f"File changed after analysis: {relative}"))
+        new_content = change.get("newContent")
+        if not isinstance(new_content, str) or len(new_content.encode("utf-8")) > MAX_FILE_BYTES:
+            raise ValueError(loop_text(language, f"保存内容が不正または大きすぎます: {relative}", f"Generated content is invalid or too large: {relative}"))
+        validate_generated_source(relative, new_content, language)
+        normalized = dict(change)
+        normalized["path"] = relative
+        if requested != relative:
+            normalized["requestedPath"] = requested
+        prepared.append(normalized)
+    return prepared
 
 
 def validate_generated_source(relative: str, content: str, language: str = "ja") -> None:

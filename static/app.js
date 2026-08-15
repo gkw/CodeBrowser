@@ -88,6 +88,7 @@ const translations = {
     loopOutcome: '終了結果',
     loopConcreteChanges: '具体的な変更内容', loopNoConcreteChanges: '適用された変更はありません。',
     loopNoChangeDecisions: '変更なしの判定', loopNotRun: rounds => `未実行：Round ${rounds.join(', ')}`,
+    loopIntegrationAttempts: '統合モデルの試行',
     loopNoChangesOutcome: (done, max) => `正常終了：Round ${done}で安全に適用できる追加変更がなくなったため、最大${max}ラウンドのうち${done}ラウンドで終了しました。残り${Math.max(0, max - done)}ラウンドは実行していません。`,
     loopAllRoundsOutcome: count => `正常終了：予定した${count}ラウンドをすべて完了しました。`,
     loopFailedOutcome: message => `失敗終了：${message || 'エラーが発生しました。'}`,
@@ -146,6 +147,7 @@ const translations = {
     loopOutcome: 'Outcome',
     loopConcreteChanges: 'Concrete changes', loopNoConcreteChanges: 'No changes were applied.',
     loopNoChangeDecisions: 'No-change decisions', loopNotRun: rounds => `Not run: Round ${rounds.join(', ')}`,
+    loopIntegrationAttempts: 'Integration attempts',
     loopNoChangesOutcome: (done, max) => `Completed normally: no further safe changes were found in Round ${done}, so the Loop stopped after ${done} of up to ${max} rounds. The remaining ${Math.max(0, max - done)} round(s) were not run.`,
     loopAllRoundsOutcome: count => `Completed normally: all ${count} planned rounds finished.`,
     loopFailedOutcome: message => `Failed: ${message || 'An error occurred.'}`,
@@ -925,6 +927,10 @@ function loopStatusMarkdown(job) {
 
 function loopRoundMarkdown(round) {
   const lines = [`# ${t('loopRound', round.number)}`, '', round.summary || ''];
+  if (round.integrationAttempts?.length) {
+    lines.push('', `## ${t('loopIntegrationAttempts')}`);
+    for (const attempt of round.integrationAttempts) lines.push(`- \`${attempt.model}\`: **${attempt.status}**${attempt.error ? ` — ${attempt.error}` : ''}`);
+  }
   for (const analysis of round.analyses || []) lines.push('', `## ${analysis.model} · ${analysis.status}`, '', analysis.content || '');
   if (round.changes?.length) lines.push('', '## Changes', ...round.changes.map(change => `- \`${change.path}\`: ${change.reason || ''}`));
   if (round.tests) lines.push('', '## Tests', `**${round.tests.status}** — \`${(round.tests.command || []).join(' ')}\``, '', '```text', (round.tests.output || '').slice(-10000), '```');
