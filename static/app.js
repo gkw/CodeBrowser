@@ -78,6 +78,7 @@ const translations = {
     unlockEditing: '編集を許可', lockEditing: '編集を禁止', gitClean: '変更なし', gitModified: '変更あり',
     pinProject: 'このプロジェクトを固定', unpinProject: '固定を解除', pinnedProjects: '固定したプロジェクト',
     noPinnedProjects: '固定したプロジェクトはありません', openPinnedProject: 'このプロジェクトを開く', removePin: '一覧から削除',
+    copyProjectPath: 'プロジェクトのフルパスをコピー',
     currentProject: '開いている',
     projectOperations: 'プロジェクト操作',
     projectPinned: name => `${name} を固定しました`, projectUnpinned: name => `${name} の固定を解除しました`,
@@ -137,6 +138,7 @@ const translations = {
     unlockEditing: 'Enable editing', lockEditing: 'Disable editing', gitClean: 'clean', gitModified: 'modified',
     pinProject: 'Pin this project', unpinProject: 'Unpin project', pinnedProjects: 'Pinned projects',
     noPinnedProjects: 'No pinned projects', openPinnedProject: 'Open this project', removePin: 'Remove from pins',
+    copyProjectPath: 'Copy project full path',
     currentProject: 'OPEN',
     projectOperations: 'Project actions',
     projectPinned: name => `Pinned ${name}`, projectUnpinned: name => `Unpinned ${name}`,
@@ -567,7 +569,7 @@ async function init() {
 }
 
 async function changeRoot(path) {
-  if (state.editing && state.editDirty && !window.confirm(t('discardChanges'))) return;
+  if (state.editing && state.editDirty && !window.confirm(t('discardChanges'))) return false;
   if (state.editing) finishEditing();
   const button = $('#confirmFolderButton');
   button.disabled = true;
@@ -589,8 +591,11 @@ async function changeRoot(path) {
     await loadDirectory('', tree, 0);
     $('#folderDialog').close();
     switchMobilePanel('explorer');
+    return true;
   } catch (error) {
     $('#folderError').textContent = error.message;
+    $('#assistantMeta').textContent = error.message;
+    return false;
   } finally {
     button.disabled = false;
   }
@@ -663,12 +668,67 @@ function renderPinnedProjectList(container, compact) {
       </button>
       <button type="button" class="pinned-project-remove" title="${t('removePin')}" aria-label="${t('removePin')}: ${escapeHtml(projectName(path))}">×</button>`;
     row.querySelector('.pinned-project-open').addEventListener('click', () => changeRoot(path));
+    row.addEventListener('contextmenu', event => showPinnedProjectContextMenu(event, path));
     row.querySelector('.pinned-project-remove').addEventListener('click', () => {
       state.pinnedProjects = state.pinnedProjects.filter(item => item !== path);
       savePinnedProjects();
     });
     container.append(row);
   }
+}
+
+async function openPinnedProjectForAction(path) {
+  if (path === state.config?.root) return true;
+  return changeRoot(path);
+}
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    $('#assistantMeta').textContent = t('pathCopied');
+  } catch (_) {
+    $('#assistantMeta').textContent = t('pathCopyFailed');
+  }
+}
+
+function showPinnedProjectContextMenu(event, path) {
+  event.preventDefault();
+  event.stopPropagation();
+  const menu = $('#treeContextMenu');
+  menu.innerHTML = `
+    <div class="menu-label">${escapeHtml(path)}</div>
+    <button role="menuitem" data-menu-action="open"><span class="menu-icon">↗</span>${t('openPinnedProject')}</button>
+    <button role="menuitem" data-menu-action="loop"><span class="menu-icon">↻</span>${t('loopProject')}</button>
+    <div class="menu-separator"></div>
+    <button role="menuitem" data-menu-action="summary"><span class="menu-icon">✦</span>${t('folderSummary')}</button>
+    <button role="menuitem" data-menu-action="improve"><span class="menu-icon">⇧</span>${t('projectImprove')}</button>
+    <div class="menu-separator"></div>
+    <button role="menuitem" data-menu-action="copy"><span class="menu-icon">⧉</span>${t('copyProjectPath')}</button>
+    <button role="menuitem" data-menu-action="unpin"><span class="menu-icon">★</span>${t('unpinProject')}</button>`;
+  menu.classList.add('open');
+  const rect = menu.getBoundingClientRect();
+  menu.style.left = `${Math.max(6, Math.min(event.clientX, window.innerWidth - rect.width - 6))}px`;
+  menu.style.top = `${Math.max(6, Math.min(event.clientY, window.innerHeight - rect.height - 6))}px`;
+  menu.querySelectorAll('[data-menu-action]').forEach(button => button.addEventListener('click', async () => {
+    const action = button.dataset.menuAction;
+    closeTreeContextMenu();
+    if (action === 'copy') {
+      await copyText(path);
+      return;
+    }
+    if (action === 'unpin') {
+      toggleProjectPin(path);
+      return;
+    }
+    if (!await openPinnedProjectForAction(path)) return;
+    if (action === 'loop') await startLoop('', 'project');
+    if (action === 'summary') {
+      switchMobilePanel('assistant');
+      await analyzeProject('');
+    }
+    if (action === 'improve') await analyzeProjectImprovements('');
+  }));
+  menu.querySelector('button')?.focus();
 }
 
 function resetEditor() {
