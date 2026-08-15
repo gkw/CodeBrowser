@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Code Browser · Ollama</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">⌘</span><span>Code Browser</span></div>
+    <div class="root-path" id="rootPath">読み込み中…</div>
+    <button class="read-only-toggle active" id="readOnlyButton" type="button" aria-pressed="true">🔒 READ ONLY</button>
+    <button class="open-folder-button" id="openFolderButton"><span>▰</span> <span id="openFolderLabel">フォルダを開く</span></button>
+    <div class="connection"><span class="status-dot" id="statusDot"></span><span id="connectionText">Ollama を確認中</span></div>
+    <select id="languageSelect" aria-label="表示言語">
+      <option value="ja">日本語</option>
+      <option value="en">English</option>
+    </select>
+    <select id="modelSelect" aria-label="Ollama モデル"></select>
+  </header>
+
+  <main class="workspace">
+    <aside class="explorer panel">
+      <div class="panel-heading">
+        <span id="explorerLabel">EXPLORER</span>
+        <div class="panel-heading-actions">
+          <button class="icon-button root-project-menu-button" id="rootProjectMenuButton" title="プロジェクト操作" aria-label="プロジェクト操作">•••</button>
+          <button class="icon-button parent-button" id="parentButton" title="親ディレクトリへ移動" aria-label="親ディレクトリへ移動" disabled>↑</button>
+          <button class="icon-button project-improve-button" id="projectImproveButton" title="プロジェクト全体の改善点" aria-label="プロジェクト全体の改善点">⇧</button>
+          <button class="icon-button" id="refreshButton" title="更新">↻</button>
+        </div>
+      </div>
+      <label class="search-box">
+        <span>⌕</span>
+        <input id="filterInput" type="search" placeholder="ファイルを絞り込み">
+      </label>
+      <section class="pinned-sidebar-section" aria-labelledby="pinnedSidebarTitle">
+        <div class="pinned-sidebar-title" id="pinnedSidebarTitle">PINNED PROJECTS</div>
+        <div class="pinned-sidebar-list" id="pinnedSidebarList"></div>
+      </section>
+      <div class="tree" id="tree" role="tree"></div>
+    </aside>
+
+    <section class="editor panel">
+      <div class="tabbar">
+        <div class="tab active" id="activeTab"><span class="file-dot"></span><span id="tabName">ファイルを選択</span></div>
+      </div>
+      <div class="file-path-bar">
+        <div class="breadcrumbs" id="breadcrumbs">プロジェクトからファイルを選択してください</div>
+        <div class="editor-actions">
+          <button id="editFileButton" title="編集" aria-label="編集" disabled>✎</button>
+          <button id="saveFileButton" class="save-file-button" title="保存" aria-label="保存" hidden>保存</button>
+          <button id="cancelEditButton" title="編集をキャンセル" aria-label="編集をキャンセル" hidden>×</button>
+          <button id="gitCommitButton" title="このファイルをコミット" aria-label="このファイルをコミット" disabled>Git</button>
+        </div>
+        <button class="copy-path-button" id="copyPathButton" title="フルパスをコピー" aria-label="フルパスをコピー" disabled>⧉</button>
+      </div>
+      <div class="empty-state" id="emptyState">
+        <div class="empty-icon">⌘</div>
+        <h1 id="emptyTitle">コードを選んで、理解する</h1>
+        <p id="emptyDescription">左のファイルツリーからソースコードを開くと、要約や詳しい解説を Ollama に依頼できます。</p>
+        <div class="shortcut"><kbd>⌘</kbd><kbd>K</kbd><span id="fileSearchLabel">ファイル検索</span></div>
+      </div>
+      <div class="code-wrap hidden" id="codeWrap">
+        <div class="line-numbers" id="lineNumbers" aria-hidden="true"></div>
+        <pre class="code-view"><code id="codeView"></code></pre>
+        <textarea class="code-editor" id="codeEditor" aria-label="ソースコード編集" spellcheck="false" hidden></textarea>
+      </div>
+      <footer class="statusbar">
+        <span id="gitStatus">Git: —</span>
+        <span id="languageLabel">Plain Text</span>
+        <span id="fileStats">—</span>
+        <span>UTF-8</span>
+      </footer>
+    </section>
+
+    <div class="assistant-resizer" id="assistantResizer" role="separator" aria-label="OLLAMA ASSISTANTの幅を変更" aria-orientation="vertical" tabindex="0"></div>
+    <aside class="assistant panel">
+      <div class="assistant-title">
+        <div><span class="spark">✦</span> OLLAMA ASSISTANT</div>
+        <div class="assistant-title-actions">
+          <button class="icon-button fullscreen-button" id="fullscreenButton" title="全画面表示" aria-label="全画面表示">⛶</button>
+          <button class="icon-button" id="clearButton" title="回答をクリア">×</button>
+        </div>
+      </div>
+      <div class="analysis-tabs" id="analysisTabs" role="tablist" aria-label="要約履歴"></div>
+      <div class="action-grid">
+        <button class="action active" data-mode="summary"><span>≡</span><span id="summaryActionLabel">要約</span></button>
+        <button class="action" data-mode="explain"><span>◎</span><span id="explainActionLabel">詳しく解説</span></button>
+        <button class="action" data-mode="review"><span>◇</span><span id="reviewActionLabel">レビュー</span></button>
+        <button class="action" data-mode="improve"><span>⇧</span><span id="improveActionLabel">改善点</span></button>
+      </div>
+      <div class="selection-note" id="selectionNote">ファイル全体を解析します</div>
+      <div class="answer" id="answer">
+        <div class="answer-placeholder">
+          <div class="orb">✦</div>
+          <p>ファイルを開いて解析を実行すると、ここに回答が表示されます。</p>
+        </div>
+      </div>
+      <div class="export-row">
+        <button id="saveMarkdownButton" disabled><span>↓</span> <span id="markdownLabel">Markdown</span></button>
+        <button id="savePdfButton" disabled><span>↓</span> <span id="pdfLabel">PDF</span></button>
+      </div>
+      <div class="prompt-box">
+        <textarea id="questionInput" rows="2" placeholder="このコードについて質問…"></textarea>
+        <button id="askButton" title="質問を送信">↑</button>
+      </div>
+      <div class="loop-controls">
+        <button id="loopButton" disabled><span>↻</span><span id="loopLabel">Loop ×3</span></button>
+        <button id="stopLoopButton" class="stop-loop-button" hidden><span>■</span><span id="stopLoopLabel">停止</span></button>
+      </div>
+      <button class="primary-button" id="analyzeButton" disabled><span>✦</span><span id="analyzeLabel">要約を生成</span></button>
+      <div class="assistant-meta" id="assistantMeta"></div>
+    </aside>
+  </main>
+
+  <nav class="mobile-nav" aria-label="モバイルナビゲーション">
+    <button class="active" data-mobile-panel="explorer"><span>▰</span><span id="mobileFilesLabel">ファイル</span></button>
+    <button data-mobile-panel="editor"><span>&lt;/&gt;</span><span id="mobileCodeLabel">コード</span></button>
+    <button data-mobile-panel="assistant"><span>✦</span><span>AI</span></button>
+  </nav>
+
+  <dialog class="folder-dialog" id="folderDialog">
+    <form method="dialog" id="folderForm">
+      <div class="dialog-heading">
+        <div>
+          <h2 id="folderDialogTitle">フォルダを開く</h2>
+          <p id="folderDialogDescription">閲覧するローカルディレクトリの絶対パスを入力してください。</p>
+        </div>
+        <button class="dialog-close" value="cancel" aria-label="閉じる">×</button>
+      </div>
+      <label for="folderPath" id="directoryLabel">ディレクトリ</label>
+      <input id="folderPath" name="folderPath" type="text" autocomplete="off" spellcheck="false" placeholder="/Users/name/code/project">
+      <div class="folder-examples">
+        <button type="button" data-folder="/Users/gen/code">/Users/gen/code</button>
+      </div>
+      <section class="pinned-projects-section" aria-labelledby="pinnedProjectsTitle">
+        <div class="pinned-projects-title" id="pinnedProjectsTitle">固定したプロジェクト</div>
+        <div class="pinned-projects-list" id="pinnedProjectsList"></div>
+      </section>
+      <div class="dialog-error" id="folderError" role="alert"></div>
+      <div class="dialog-actions">
+        <button value="cancel" id="cancelFolderButton">キャンセル</button>
+        <button class="dialog-primary" id="confirmFolderButton" value="default">開く</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog class="folder-dialog commit-dialog" id="commitDialog">
+    <form method="dialog" id="commitForm">
+      <div class="dialog-heading">
+        <div><h2 id="commitDialogTitle">このファイルをコミット</h2><p id="commitPath"></p></div>
+        <button class="dialog-close" value="cancel" aria-label="閉じる">×</button>
+      </div>
+      <label for="commitMessage" id="commitMessageLabel">コミットメッセージ</label>
+      <input id="commitMessage" maxlength="240" autocomplete="off" required>
+      <div class="dialog-error" id="commitError" role="alert"></div>
+      <div class="dialog-actions">
+        <button value="cancel" id="cancelCommitButton">キャンセル</button>
+        <button class="dialog-primary" id="confirmCommitButton" value="default">コミット</button>
+      </div>
+    </form>
+  </dialog>
+  <div class="context-menu" id="treeContextMenu" role="menu" aria-label="ファイル操作"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+.env
+.env.*
+!.env.example
+__pycache__/
+*.pyc
+.venv-mcp/
+.code-browser-mcp-state.json
+.code-browser-loop-state.json
