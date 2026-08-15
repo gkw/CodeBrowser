@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Code Browser">
+  <rect width="512" height="512" fill="#101216"/>
+  <path d="M128 174a24 24 0 0 1 24-24h82l32 36h94a24 24 0 0 1 24 24v152a24 24 0 0 1-24 24H152a24 24 0 0 1-24-24z" fill="#171a20" stroke="#c5f25f" stroke-width="18"/>
+  <path d="m226 246-48 41 48 41M286 246l48 41-48 41" fill="none" stroke="#7eb6ff" stroke-linecap="round" stroke-linejoin="round" stroke-width="21"/>
+</svg>

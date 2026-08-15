@@ -19,6 +19,31 @@ The main application uses only the Python 3 standard library, so no package inst
 
 After startup, select **Open Folder** in the header to switch to another directory. Enter an absolute path to a local directory. After the switch, the application continues to prevent access outside the newly selected root.
 
+## Android application (PWA)
+
+The Android edition is an installable Progressive Web App that reuses the existing mobile interface. Code Browser and the source tree remain on your Mac or server; Android connects over HTTPS. Once installed, it launches in a standalone window without browser tabs or an address bar.
+
+PWA installation requires HTTPS. The recommended private setup is to connect the host and Android device to the same Tailscale network, then expose only the local Code Browser service with Tailscale Serve:
+
+```bash
+# Keep Code Browser bound to localhost.
+PORT=8092 ./start.sh /path/to/your/project
+
+# In another terminal, publish it only inside your tailnet over HTTPS.
+tailscale serve --bg 8092
+tailscale serve status
+```
+
+Open the `https://...ts.net` URL reported by `tailscale serve status` in Android Chrome. Select the download icon in the Code Browser header, or choose **Install app** / **Add to Home screen** from the Chrome menu. The Mac or server must remain online while the Android app is in use.
+
+For temporary access on a trusted LAN, you can listen on all interfaces. Plain HTTP can be opened in Chrome but does not meet PWA installation requirements, and other devices on the LAN may also reach the service, so this mode is not recommended for regular use.
+
+```bash
+HOST=0.0.0.0 PORT=8092 ./start.sh /path/to/your/project
+```
+
+Code Browser does not provide user authentication. Do not use internet port forwarding or Tailscale Funnel. `READ ONLY` prevents accidental edits but is not an access-control mechanism. The Service Worker caches only static UI assets; API responses and source code are never cached for offline use.
+
 ## Features
 
 - Lazily loaded project file tree
@@ -31,6 +56,7 @@ After startup, select **Open Folder** in the header to switch to another directo
 - Whole-project improvement reviews using up to three models
 - `Loop ×3` for as many as three rounds of multi-model analysis, consolidation, safe edits, and tests
 - Mobile navigation between Files, Code, and AI panels
+- Installable Android PWA with a standalone window and dedicated launcher icon
 - English and Japanese interfaces and Ollama response-language selection
 - Parent-directory navigation from the file browser
 - Full-screen Ollama Assistant with `Esc` to restore the normal layout
@@ -137,7 +163,7 @@ OLLAMA_HOSTS=http://ollama-server.local:11434,http://localhost:11434
 - The maximum displayed file size is 1.5 MB.
 - Binary files are not displayed.
 - Code sent to Ollama is limited to 120,000 characters per request.
-- The application is intended for trusted local environments. Do not expose it directly to the public internet.
+- The application is intended for trusted local environments or a private tailnet. Never expose it to the public internet without authentication.
 
 HTTP responses include security headers such as Content Security Policy. Every POST API requires `X-Requested-With: CodeBrowser`; normal requests from the application include it automatically.
 

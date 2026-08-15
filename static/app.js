@@ -34,6 +34,7 @@ let persistenceTimer = null;
 let mcpSyncTimer = null;
 let loopPollTimer = null;
 let restoringWorkspace = false;
+let deferredInstallPrompt = null;
 const translations = {
   ja: {
     openFolder: 'フォルダを開く', filter: 'ファイルを絞り込み', noFile: 'ファイルを選択',
@@ -79,7 +80,7 @@ const translations = {
     pinProject: 'このプロジェクトを固定', unpinProject: '固定を解除', pinnedProjects: '固定したプロジェクト',
     noPinnedProjects: '固定したプロジェクトはありません', openPinnedProject: 'このプロジェクトを開く', removePin: '一覧から削除',
     copyProjectPath: 'プロジェクトのフルパスをコピー',
-    currentProject: '開いている',
+    currentProject: '開いている', installApp: 'アプリを追加', appInstalled: 'Androidアプリを追加しました',
     projectOperations: 'プロジェクト操作',
     projectPinned: name => `${name} を固定しました`, projectUnpinned: name => `${name} の固定を解除しました`,
     loop: 'Loop ×3 · Python', stopLoop: '停止', loopReadOnly: 'Loopを開始するにはREAD ONLYを解除してください',
@@ -139,7 +140,7 @@ const translations = {
     pinProject: 'Pin this project', unpinProject: 'Unpin project', pinnedProjects: 'Pinned projects',
     noPinnedProjects: 'No pinned projects', openPinnedProject: 'Open this project', removePin: 'Remove from pins',
     copyProjectPath: 'Copy project full path',
-    currentProject: 'OPEN',
+    currentProject: 'OPEN', installApp: 'Install app', appInstalled: 'App installed',
     projectOperations: 'Project actions',
     projectPinned: name => `Pinned ${name}`, projectUnpinned: name => `Unpinned ${name}`,
     loop: 'Loop ×3 · Python', stopLoop: 'Stop', loopReadOnly: 'Turn off READ ONLY before starting Loop',
@@ -289,6 +290,7 @@ function applyLanguage() {
   document.documentElement.lang = state.language;
   $('#languageSelect').value = state.language;
   $('#openFolderLabel').textContent = t('openFolder');
+  $('#installAppLabel').textContent = t('installApp');
   $('#filterInput').placeholder = t('filter');
   $('#emptyTitle').textContent = t('emptyTitle');
   $('#emptyDescription').textContent = t('emptyDescription');
@@ -2017,6 +2019,31 @@ document.addEventListener('selectionchange', () => {
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') writeWorkspaceState().catch(() => {});
 });
+
+window.addEventListener('beforeinstallprompt', event => {
+  event.preventDefault();
+  deferredInstallPrompt = event;
+  $('#installAppButton').hidden = false;
+});
+$('#installAppButton').addEventListener('click', async () => {
+  if (!deferredInstallPrompt) return;
+  deferredInstallPrompt.prompt();
+  await deferredInstallPrompt.userChoice;
+  deferredInstallPrompt = null;
+  $('#installAppButton').hidden = true;
+});
+window.addEventListener('appinstalled', () => {
+  deferredInstallPrompt = null;
+  $('#installAppButton').hidden = true;
+  $('#assistantMeta').textContent = t('appInstalled');
+});
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/service-worker.js').catch(error => {
+      console.warn('Service worker registration failed:', error);
+    });
+  });
+}
 
 state.language = localStorage.getItem('code-browser-language') === 'en' ? 'en' : 'ja';
 applyLanguage();

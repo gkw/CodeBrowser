@@ -3,7 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101216">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Code Browser · Ollama</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/static/icons/code-browser.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/static/icons/code-browser-192.png">
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
@@ -11,6 +18,7 @@
     <div class="brand"><span class="brand-mark">⌘</span><span>Code Browser</span></div>
     <div class="root-path" id="rootPath">読み込み中…</div>
     <button class="read-only-toggle active" id="readOnlyButton" type="button" aria-pressed="true">🔒 READ ONLY</button>
+    <button class="install-app-button" id="installAppButton" type="button" hidden><span>⬇</span> <span id="installAppLabel">アプリを追加</span></button>
     <button class="open-folder-button" id="openFolderButton"><span>▰</span> <span id="openFolderLabel">フォルダを開く</span></button>
     <div class="connection"><span class="status-dot" id="statusDot"></span><span id="connectionText">Ollama を確認中</span></div>
     <select id="languageSelect" aria-label="表示言語">

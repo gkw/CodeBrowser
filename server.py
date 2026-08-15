@@ -265,6 +265,15 @@ class RequestHandler(BaseHTTPRequestHandler):
                 )
             elif parsed.path.startswith("/static/"):
                 self.serve_static(parsed.path.removeprefix("/static/"))
+            elif parsed.path == "/manifest.webmanifest":
+                self.serve_static("manifest.webmanifest", content_type="application/manifest+json")
+            elif parsed.path == "/service-worker.js":
+                self.serve_static(
+                    "service-worker.js",
+                    content_type="text/javascript; charset=utf-8",
+                    cache_control="no-cache, no-store, must-revalidate",
+                    service_worker_allowed="/",
+                )
             elif parsed.path == "/" or parsed.path == "/index.html":
                 self.serve_static("index.html")
             else:
@@ -761,17 +770,28 @@ class RequestHandler(BaseHTTPRequestHandler):
         }
         self.stream_ollama_chat(host, model, ollama_payload, language)
 
-    def serve_static(self, relative: str) -> None:
+    def serve_static(
+        self,
+        relative: str,
+        *,
+        content_type: str | None = None,
+        cache_control: str = "no-cache",
+        service_worker_allowed: str | None = None,
+    ) -> None:
         path = resolve_static_file(relative)
         if path is None:
             self.send_error_json(404, "Not found")
             return
         body = path.read_bytes()
-        mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        mime = content_type or mimetypes.guess_type(path.name)[0] or "application/octet-stream"
         self.send_response(200)
-        self.send_header("Content-Type", f"{mime}; charset=utf-8" if mime.startswith("text/") else mime)
+        if content_type is None and mime.startswith("text/"):
+            mime = f"{mime}; charset=utf-8"
+        self.send_header("Content-Type", mime)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Cache-Control", cache_control)
+        if service_worker_allowed is not None:
+            self.send_header("Service-Worker-Allowed", service_worker_allowed)
         self.end_headers()
         self.wfile.write(body)
 

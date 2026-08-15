@@ -21,8 +21,10 @@ button { color: inherit; }
 .brand { display: flex; align-items: center; gap: 8px; color: var(--bright); font-weight: 650; white-space: nowrap; }
 .brand-mark { width: 24px; height: 24px; border: 1px solid #48505b; border-radius: 7px; display: grid; place-items: center; color: var(--accent); }
 .root-path { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
-.open-folder-button { height: 29px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); color: #adb5c0; cursor: pointer; white-space: nowrap; font-size: 11px; }
-.open-folder-button:hover { border-color: #4e5763; color: var(--bright); }
+.open-folder-button, .install-app-button { height: 29px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); color: #adb5c0; cursor: pointer; white-space: nowrap; font-size: 11px; }
+.open-folder-button:hover, .install-app-button:hover { border-color: #4e5763; color: var(--bright); }
+.install-app-button { border-color: rgba(197,242,95,.4); color: var(--accent); }
+.install-app-button[hidden] { display: none; }
 .read-only-toggle { height: 29px; padding: 0 10px; border: 1px solid #414955; border-radius: 6px; background: #171a20; color: #8f98a5; cursor: pointer; white-space: nowrap; font-size: 10px; font-weight: 750; letter-spacing: .04em; }
 .read-only-toggle.active { border-color: #d99a59; background: rgba(217,154,89,.12); color: #efb877; }
 .read-only-toggle:not(.active) { border-color: rgba(197,242,95,.42); color: var(--accent); }
@@ -222,6 +224,8 @@ body.assistant-is-fullscreen .assistant-resizer { display: none; }
   .brand span:last-child, .root-path, .connection { display: none; }
   .brand { flex: none; }
   .open-folder-button { display: block; max-width: 125px; overflow: hidden; text-overflow: ellipsis; }
+  .install-app-button { flex: none; width: 34px; padding: 0; overflow: hidden; font-size: 0; }
+  .install-app-button span:first-child { font-size: 14px; }
   .read-only-toggle { flex: none; width: 34px; padding: 0; overflow: hidden; font-size: 0; }
   .read-only-toggle::before { content: "🔓"; font-size: 13px; }
   .read-only-toggle.active::before { content: "🔒"; }

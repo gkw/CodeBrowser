@@ -63,6 +63,31 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(headers["X-Content-Type-Options"], "nosniff")
         self.assertEqual(headers["Referrer-Policy"], "no-referrer")
 
+    def test_pwa_assets_are_served_from_installable_paths(self) -> None:
+        connection = http.client.HTTPConnection(*self.application.server_address, timeout=3)
+        connection.request("GET", "/manifest.webmanifest")
+        response = connection.getresponse()
+        manifest = json.loads(response.read().decode("utf-8"))
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.getheader("Content-Type"), "application/manifest+json")
+        self.assertEqual(manifest["display"], "standalone")
+        self.assertEqual(
+            {(icon["sizes"], icon["type"]) for icon in manifest["icons"]},
+            {("192x192", "image/png"), ("512x512", "image/png")},
+        )
+        connection.close()
+
+        connection = http.client.HTTPConnection(*self.application.server_address, timeout=3)
+        connection.request("GET", "/service-worker.js")
+        response = connection.getresponse()
+        body = response.read().decode("utf-8")
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.getheader("Content-Type"), "text/javascript; charset=utf-8")
+        self.assertEqual(response.getheader("Service-Worker-Allowed"), "/")
+        self.assertIn("no-store", response.getheader("Cache-Control"))
+        self.assertIn("url.pathname.startsWith('/api/')", body)
+        connection.close()
+
     def test_post_requires_code_browser_header(self) -> None:
         status, _, body = self.request("POST", "/api/read-only", {"readOnly": False})
         self.assertEqual(status, 403)
