@@ -11,7 +11,6 @@ from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 
-
 APP_DIR = Path(__file__).resolve().parent
 DEFAULT_STATE_PATH = APP_DIR / ".code-browser-mcp-state.json"
 DEFAULT_LOOP_STATE_PATH = APP_DIR / ".code-browser-loop-state.json"
@@ -53,7 +52,9 @@ def load_state() -> dict[str, Any]:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise RuntimeError(f"Could not read state file {path}: {exc}") from exc
-    if not isinstance(value, dict) or value.get("version") != 1:
+    # Ensure required top‑level keys are present
+    REQUIRED_KEYS = {"version", "updatedAt", "pinnedProjects", "current", "analyses"}
+    if not isinstance(value, dict) or not REQUIRED_KEYS.issubset(value):
         raise RuntimeError(f"Code Browser state has an unsupported format: {path}")
     return value
 
@@ -66,7 +67,13 @@ def load_loop_state() -> dict[str, Any]:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise RuntimeError(f"Could not read Loop state file {path}: {exc}") from exc
-    return value if isinstance(value, dict) else {"status": "idle", "rounds": []}
+    if not isinstance(value, dict):
+        return {"status": "idle", "rounds": []}
+    # Guard against malformed "rounds" field
+    rounds = value.get("rounds")
+    if not isinstance(rounds, list):
+        value["rounds"] = []
+    return value
 
 
 def project_name(path: str) -> str:
@@ -183,7 +190,7 @@ def get_analysis_result(analysis_id: str) -> dict[str, Any]:
                 "target": item.get("target"),
                 "groupId": item.get("groupId"),
                 "tabRole": item.get("tabRole"),
-                "content": item.get("content", ""),
+                "content": str(item.get("content", "")),
                 "updatedAt": state.get("updatedAt"),
             }
     raise ValueError(f"Analysis result not found: {analysis_id}")
@@ -256,16 +263,27 @@ def get_loop_round(round_number: int) -> dict[str, Any]:
 
 
 def _valid_port(value: str) -> int:
-    port = int(value)
+    try:
+        port = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"port must be an integer, got {value!r}") from exc
     if not (1 <= port <= 65535):
         raise argparse.ArgumentTypeError(f"port must be between 1 and 65535, got {port}")
     return port
 
 
+def _env_port() -> int:
+    raw = os.environ.get("CODE_BROWSER_MCP_PORT", "8766")
+    try:
+        return _valid_port(raw)
+    except argparse.ArgumentTypeError as exc:
+        raise SystemExit(f"Invalid CODE_BROWSER_MCP_PORT: {raw!r}") from exc
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Ollama Code Browser read-only MCP server")
     parser.add_argument("--host", default=os.environ.get("CODE_BROWSER_MCP_HOST", "127.0.0.1"))
-    parser.add_argument("--port", type=_valid_port, default=int(os.environ.get("CODE_BROWSER_MCP_PORT", "8766")))
+    parser.add_argument("--port", type=_valid_port, default=_env_port())
     return parser.parse_args()
 
 

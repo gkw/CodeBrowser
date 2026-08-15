@@ -80,7 +80,9 @@ class LoopManagerTests(unittest.TestCase):
                 if integration_calls > 1:
                     return json.dumps({"summary": "No further safe changes", "changes": []})
                 prompt = messages[-1]["content"]
-                digest = re.search(r"SHA256: ([0-9a-f]{64})", prompt).group(1)
+                match = re.search(r"SHA256: ([0-9a-f]{64})", prompt)
+                assert match, "prompt must contain SHA256 digest"
+                digest = match.group(1)
                 return json.dumps({
                     "summary": "Update the sample implementation",
                     "changes": [{
@@ -146,7 +148,10 @@ class LoopManagerTests(unittest.TestCase):
             def fake_model(_host: str, model: str, messages: list[dict[str, str]], *, json_format: bool = False) -> str:
                 if not json_format:
                     return "Update the value."
-                digest = re.search(r"SHA256: ([0-9a-f]{64})", messages[-1]["content"]).group(1)
+                prompt = messages[-1]["content"]
+                match = re.search(r"SHA256: ([0-9a-f]{64})", prompt)
+                assert match, "prompt must contain SHA256 digest"
+                digest = match.group(1)
                 content = "+value = 2\n+broken = True\n+third = True\n" if model == "model-a" else "value = 2\n"
                 return json.dumps({
                     "summary": "Retry succeeded",
@@ -191,7 +196,10 @@ class LoopManagerTests(unittest.TestCase):
             def fake_model(_host: str, _model: str, messages: list[dict[str, str]], *, json_format: bool = False) -> str:
                 if not json_format:
                     return "Change the return value."
-                digest = re.search(r"SHA256: ([0-9a-f]{64})", messages[-1]["content"]).group(1)
+                prompt = messages[-1]["content"]
+                match = re.search(r"SHA256: ([0-9a-f]{64})", prompt)
+                assert match, "prompt must contain SHA256 digest"
+                digest = match.group(1)
                 return json.dumps({
                     "summary": "Change it",
                     "changes": [{
