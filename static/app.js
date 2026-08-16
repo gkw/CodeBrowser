@@ -58,6 +58,7 @@ const translations = {
     projectAnalyzing: '## プロジェクト構成を解析中…', cachedSummary: 'このセッションで生成済みのプロジェクト構成要約',
     project: 'プロジェクト構成要約', answerQuestion: '質問への回答', codeExplanation: 'コード解説',
     target: '対象ファイル', model: 'Ollamaモデル', host: '接続先', created: '作成日時',
+    tokenUsage: (input, output, inputError, outputError) => `入力 ${input} · 出力 ${output} tokens · 推定誤差 入力 ${inputError} / 出力 ${outputError}`,
     initialAnswer: 'ファイルを開いて解析を実行すると、ここに回答が表示されます。',
     readyAnswer: '解析方法を選んで実行してください。コードを範囲選択すると、その部分だけを解析できます。',
     selectedLines: n => `選択範囲のみ解析（${n} 行）`, lines: n => `${n} 行`,
@@ -118,6 +119,7 @@ const translations = {
     projectAnalyzing: '## Analyzing project structure…', cachedSummary: 'Project summary generated earlier in this session',
     project: 'Project structure summary', answerQuestion: 'Answer', codeExplanation: 'Code explanation',
     target: 'Target', model: 'Ollama model', host: 'Host', created: 'Created',
+    tokenUsage: (input, output, inputError, outputError) => `Input ${input} · Output ${output} tokens · estimate error input ${inputError} / output ${outputError}`,
     initialAnswer: 'Open a file and run an analysis to see the response here.',
     readyAnswer: 'Choose an analysis action. Select a code range to analyze only that section.',
     selectedLines: n => `Analyzing selection (${n} lines)`, lines: n => `${n} lines`,
@@ -1786,6 +1788,20 @@ async function consumeAnalysisResponse(response, tabId) {
           showAnswer(tab.content);
           $('#answer').scrollTop = $('#answer').scrollHeight;
         }
+      }
+      if (chunk.usage) {
+        tab.usage = chunk.usage;
+        const count = value => Number.isInteger(value) ? value.toLocaleString() : '—';
+        const error = value => typeof value === 'number' ? `${value > 0 ? '+' : ''}${value.toFixed(2)}%` : '—';
+        const usageText = t(
+          'tokenUsage',
+          count(chunk.usage.prompt?.measuredTokens),
+          count(chunk.usage.output?.measuredTokens),
+          error(chunk.usage.prompt?.errorPercent),
+          error(chunk.usage.output?.errorPercent),
+        );
+        tab.metaText = `${tab.host} · ${tab.model} · ${usageText}`;
+        if (state.activeAnalysisTabId === tabId) $('#assistantMeta').textContent = tab.metaText;
       }
     }
     if (done) break;

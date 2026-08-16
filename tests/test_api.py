@@ -23,8 +23,10 @@ class ApiTests(unittest.TestCase):
         (self.root / "escape.py").symlink_to(self.outside)
         self.loop_state_patch = patch.object(server, "LOOP_STATE_PATH", temporary_root / "loop-state.json")
         self.mcp_state_patch = patch.object(server, "MCP_STATE_PATH", temporary_root / "mcp-state.json")
+        self.metering_state_patch = patch.object(server, "METERING_AUDIT_PATH", temporary_root / "metering-audit.jsonl")
         self.loop_state_patch.start()
         self.mcp_state_patch.start()
+        self.metering_state_patch.start()
         self.application = server.CodeBrowserServer(("127.0.0.1", 0), self.root)
         self.thread = threading.Thread(target=self.application.serve_forever, daemon=True)
         self.thread.start()
@@ -33,6 +35,7 @@ class ApiTests(unittest.TestCase):
         self.application.shutdown()
         self.application.server_close()
         self.thread.join(timeout=2)
+        self.metering_state_patch.stop()
         self.mcp_state_patch.stop()
         self.loop_state_patch.stop()
         self.temporary.cleanup()
@@ -62,6 +65,26 @@ class ApiTests(unittest.TestCase):
         self.assertIn("default-src 'self'", headers["Content-Security-Policy"])
         self.assertEqual(headers["X-Content-Type-Options"], "nosniff")
         self.assertEqual(headers["Referrer-Policy"], "no-referrer")
+
+    def test_metering_audit_endpoint_reports_validation_summary(self) -> None:
+        self.application.metering_audit.append(server.build_audit_record(
+            model="test-model",
+            operation="summary",
+            prompt_text="12345678",
+            output_text="1234",
+            prompt_tokens=4,
+            output_tokens=1,
+            status="measured",
+            request_id="request-1",
+        ))
+        status, _, body = self.request("GET", "/api/metering/audit?limit=10")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["summary"]["byModel"]["test-model"]["requests"], 1)
+        self.assertEqual(body["records"][0]["requestId"], "request-1")
+
+        status, _, body = self.request("GET", "/api/metering/audit?limit=0")
+        self.assertEqual(status, 400)
+        self.assertEqual(body["error"], "Audit limit must be between 1 and 1000")
 
     def test_pwa_assets_are_served_from_installable_paths(self) -> None:
         connection = http.client.HTTPConnection(*self.application.server_address, timeout=3)

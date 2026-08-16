@@ -135,6 +135,22 @@ Reconcile at three levels:
 
 The third comparison is a launch dependency if Ollama offers a usable export. If no provider usage export exists, keep a conservative vendor-loss reserve and manually reconcile account credits while requesting an enterprise feed.
 
+### Measuring estimation error
+
+Code Browser now includes a local metering-audit prototype. Every completed interactive streamed analysis preserves Ollama's final input/output counters and compares them with a deliberately simple, tokenizer-independent estimate (`ceil(UTF-8 bytes / 4)`). The estimate is useful for sizing reservations and quantifying model/language drift; it is never a billable count. The production wrapper must meter Loop and all other non-interactive operations through the same ledger as well.
+
+The UI shows measured input/output counts and signed estimation error after each response. The local endpoint `GET /api/metering/audit?limit=200` returns recent privacy-preserving records and aggregate error by model. Records contain byte counts, token counts, operation, timestamps, and request IDs, but never prompt or response text. The append-only prototype file is `.code-browser-metering-audit.jsonl` and is excluded from Git.
+
+Track at least these validation indicators separately for each model and operation:
+
+- missing final-count rate;
+- aggregate signed error, which reveals systematic over- or under-reservation;
+- mean absolute field error, which reveals request-level volatility;
+- p50/p95 error and language/content cohorts in the production ledger;
+- ledger-to-billing and ledger-to-provider aggregate drift.
+
+Do not declare one universal acceptable error without measured traffic. Establish a baseline per model, then alert on a material change from that baseline and on any missing authoritative count. The production wrapper must replace the local JSONL prototype with its transactional append-only database ledger.
+
 ## Go / No-Go gates
 
 1. Written Ollama approval or a commercial agreement covering multi-tenant proxying/resale.

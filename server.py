@@ -26,11 +26,14 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, unquote, urlparse
 from urllib.request import Request, urlopen
 
+from metering import JsonlAuditStore, build_audit_record, parse_token_count
+
 
 APP_DIR = Path(__file__).resolve().parent
 STATIC_DIR = (APP_DIR / "static").resolve()
 MCP_STATE_PATH = APP_DIR / ".code-browser-mcp-state.json"
 LOOP_STATE_PATH = APP_DIR / ".code-browser-loop-state.json"
+METERING_AUDIT_PATH = APP_DIR / ".code-browser-metering-audit.jsonl"
 MAX_FILE_BYTES = 1_500_000
 IGNORED_NAMES = {
     ".git", ".svn", ".hg", ".DS_Store", "node_modules", "__pycache__",
@@ -182,6 +185,7 @@ class CodeBrowserServer(ThreadingHTTPServer):
         self.mcp_state_lock = threading.Lock()
         self._root = root.resolve()
         self._read_only = True
+        self.metering_audit = JsonlAuditStore(METERING_AUDIT_PATH)
         self.loop_manager = LoopManager(self)
 
     def safe_path(self, relative: str) -> Path:
@@ -261,6 +265,13 @@ class RequestHandler(BaseHTTPRequestHandler):
                 self.handle_models()
             elif parsed.path == "/api/loop/status":
                 self.send_json(200, self.server.loop_manager.status())
+            elif parsed.path == "/api/metering/audit":
+                raw_limit = parse_qs(parsed.query).get("limit", ["200"])[0]
+                try:
+                    limit = int(raw_limit)
+                except ValueError as exc:
+                    raise ValueError("Audit limit must be an integer") from exc
+                self.send_json(200, self.server.metering_audit.report(limit))
             elif parsed.path == "/api/resolve-reference":
                 query = parse_qs(parsed.query)
                 self.handle_resolve_reference(
@@ -577,6 +588,8 @@ class RequestHandler(BaseHTTPRequestHandler):
     def handle_project_summary(self, payload: dict) -> None:
         model = str(payload.get("model", ""))
         mode = str(payload.get("mode", "summary"))
+        if mode not in {"summary", "improve", "consensus"}:
+            mode = "summary"
         language = "en" if payload.get("language") == "en" else "ja"
         requested_root = Path(str(payload.get("root", self.server.root))).expanduser()
         if not requested_root.is_absolute():
@@ -665,13 +678,51 @@ class RequestHandler(BaseHTTPRequestHandler):
         self.stream_project_summary(model, [
             {"role": "system", "content": system},
             {"role": "user", "content": prompt},
-        ], language)
+        ], language, operation=f"project_{mode}")
 
-    def stream_ollama_chat(self, host: str, model: str, payload: dict, language: str) -> None:
+    def stream_ollama_chat(
+        self,
+        host: str,
+        model: str,
+        payload: dict,
+        language: str,
+        *,
+        operation: str,
+    ) -> None:
+        messages = payload.get("messages", [])
+        prompt_text = "\n".join(
+            f"{message.get('role', '')}: {message.get('content', '')}"
+            for message in messages
+            if isinstance(message, dict)
+        ) if isinstance(messages, list) else ""
+        request_id: str | None = None
+
+        def write_audit(
+            status: str,
+            output_text: str = "",
+            prompt_tokens: int | None = None,
+            output_tokens: int | None = None,
+        ) -> dict[str, object]:
+            nonlocal request_id
+            record = build_audit_record(
+                model=model,
+                operation=operation,
+                prompt_text=prompt_text,
+                output_text=output_text,
+                prompt_tokens=prompt_tokens,
+                output_tokens=output_tokens,
+                status=status,
+                request_id=request_id,
+            )
+            request_id = str(record["requestId"])
+            self.server.metering_audit.append(record)
+            return record
+
         request = ollama_request(host, "/api/chat", payload=payload, headers={"Content-Type": "application/json"})
         try:
             response = urlopen(request, timeout=300)
         except HTTPError as exc:
+            write_audit(f"upstream_http_{exc.code}")
             if exc.code == 402:
                 message = (
                     "Ollama Cloud requires payment or available credits for this model. Choose another model or check your Ollama plan."
@@ -684,6 +735,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                 self.send_error_json(502, message)
             return
         except (URLError, TimeoutError, socket.timeout) as exc:
+            write_audit("upstream_unavailable")
             message = f"Ollama request failed: {exc}" if language == "en" else f"Ollamaの実行に失敗しました: {exc}"
             self.send_error_json(502, message)
             return
@@ -694,22 +746,52 @@ class RequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(json_bytes({"meta": {"host": host, "model": model}}) + b"\n")
         self.wfile.flush()
-        with response:
-            for line in response:
-                if not line.strip():
-                    continue
-                try:
-                    chunk = json.loads(line)
-                    self.wfile.write(json_bytes({
-                        "content": chunk.get("message", {}).get("content", ""),
-                        "thinking": chunk.get("message", {}).get("thinking", ""),
-                        "done": chunk.get("done", False),
-                    }) + b"\n")
-                    self.wfile.flush()
-                except json.JSONDecodeError:
-                    continue
+        output_parts: list[str] = []
+        audit_written = False
+        try:
+            with response:
+                for line in response:
+                    if not line.strip():
+                        continue
+                    try:
+                        chunk = json.loads(line)
+                        message = chunk.get("message", {})
+                        content = str(message.get("content", "")) if isinstance(message, dict) else ""
+                        thinking = str(message.get("thinking", "")) if isinstance(message, dict) else ""
+                        output_parts.extend(part for part in (thinking, content) if part)
+                        outgoing: dict[str, object] = {
+                            "content": content,
+                            "thinking": thinking,
+                            "done": chunk.get("done", False),
+                        }
+                        if chunk.get("done", False) and not audit_written:
+                            prompt_tokens = parse_token_count(chunk.get("prompt_eval_count"))
+                            output_tokens = parse_token_count(chunk.get("eval_count"))
+                            status = "measured" if prompt_tokens is not None and output_tokens is not None else "missing_counts"
+                            record = write_audit(status, "".join(output_parts), prompt_tokens, output_tokens)
+                            audit_written = True
+                            outgoing["usage"] = {
+                                "requestId": record["requestId"],
+                                "status": status,
+                                "prompt": record["prompt"],
+                                "output": record["output"],
+                            }
+                        self.wfile.write(json_bytes(outgoing) + b"\n")
+                        self.wfile.flush()
+                    except json.JSONDecodeError:
+                        continue
+        finally:
+            if not audit_written:
+                write_audit("missing_final_frame", "".join(output_parts))
 
-    def stream_project_summary(self, model: str, messages: list[dict[str, str]], language: str) -> None:
+    def stream_project_summary(
+        self,
+        model: str,
+        messages: list[dict[str, str]],
+        language: str,
+        *,
+        operation: str,
+    ) -> None:
         host, models = self.probe_ollama()
         available = allowed_model_names(host, models)
         if not model or model not in available:
@@ -721,11 +803,13 @@ class RequestHandler(BaseHTTPRequestHandler):
             "stream": True,
             "messages": messages,
             "options": {"temperature": 0.2, "num_ctx": 32768},
-        }, language)
+        }, language, operation=operation)
 
     def handle_analyze(self, payload: dict) -> None:
         relative = str(payload.get("path", ""))
         mode = str(payload.get("mode", "explain"))
+        if mode not in {"summary", "explain", "review", "improve", "consensus", "ask"}:
+            mode = "explain"
         model = str(payload.get("model", ""))
         selection = str(payload.get("selection", ""))
         language = "en" if payload.get("language") == "en" else "ja"
@@ -782,7 +866,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             ],
             "options": {"temperature": 0.2, "num_ctx": 32768},
         }
-        self.stream_ollama_chat(host, model, ollama_payload, language)
+        self.stream_ollama_chat(host, model, ollama_payload, language, operation=mode)
 
     def serve_static(
         self,

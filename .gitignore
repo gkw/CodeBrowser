@@ -6,3 +6,4 @@ __pycache__/
 .venv-mcp/
 .code-browser-mcp-state.json
 .code-browser-loop-state.json
+.code-browser-metering-audit.jsonl

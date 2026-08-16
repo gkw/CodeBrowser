@@ -205,6 +205,18 @@ Verify the protocol with:
 .venv-mcp/bin/python scripts/check_mcp.py http://127.0.0.1:8766/mcp
 ```
 
+## Token metering audit
+
+Completed Ollama responses show authoritative input/output token counts and the error of a simple byte-based reservation estimate in the assistant footer. Code Browser also keeps a local, append-only audit that contains counts and request metadata but no prompt, source, thinking, or response text.
+
+Inspect the latest 200 records and model-level error summary while Code Browser is running:
+
+```bash
+curl -sS http://127.0.0.1:8092/api/metering/audit?limit=200
+```
+
+The estimate is only a diagnostic for reservation sizing. It is not used for billing; Ollama's final `prompt_eval_count` and `eval_count` remain authoritative. See [Metered Ollama Wrapper Architecture](docs/metered-ollama-wrapper.md#measuring-estimation-error).
+
 ## License
 
 [MIT License](LICENSE)
