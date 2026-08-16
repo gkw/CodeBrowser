@@ -71,7 +71,7 @@ Code Browser does not provide user authentication. Do not use internet port forw
 - Runtime root switching through **Open Folder**
 - Pinned projects with actions for opening, structure summaries, improvement reviews, Loop, path copying, and unpinning
 - Project-structure summaries from the context menu or mobile overflow menu
-- Resizable Ollama Assistant panel with the selected width saved locally
+- Resizable Explorer and Ollama Assistant panels with the selected widths saved locally
 - File summaries, detailed explanations, and reviews directly from the file context menu
 - Folder-level structure summaries
 - Whole-project improvement reviews using up to three models

@@ -233,6 +233,16 @@ class ApiTests(unittest.TestCase):
         self.assertIn("url.pathname.startsWith('/api/')", body)
         connection.close()
 
+    def test_explorer_resizer_is_in_app_shell(self) -> None:
+        connection = http.client.HTTPConnection(*self.application.server_address, timeout=3)
+        connection.request("GET", "/")
+        response = connection.getresponse()
+        body = response.read().decode("utf-8")
+        connection.close()
+        self.assertEqual(response.status, 200)
+        self.assertIn('id="explorerResizer"', body)
+        self.assertIn('role="separator"', body)
+
     def test_post_requires_code_browser_header(self) -> None:
         status, _, body = self.request("POST", "/api/read-only", {"readOnly": False})
         self.assertEqual(status, 403)

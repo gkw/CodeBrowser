@@ -10,6 +10,7 @@
   --accent: #c5f25f;
   --accent-dim: rgba(197, 242, 95, .12);
   --blue: #7eb6ff;
+  --explorer-width: 250px;
   --assistant-width: 370px;
   font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
@@ -38,15 +39,17 @@ button { color: inherit; }
 .status-dot.online { background: #72d28b; }
 #modelSelect, #languageSelect { max-width: 230px; height: 29px; background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 0 26px 0 9px; font-size: 12px; }
 #languageSelect { max-width: 92px; }
-.workspace { position: relative; height: calc(100vh - 48px); display: grid; grid-template-columns: minmax(190px, 250px) minmax(320px, 1fr) var(--assistant-width); grid-template-rows: minmax(0, 1fr); overflow: hidden; }
+.workspace { position: relative; height: calc(100vh - 48px); display: grid; grid-template-columns: var(--explorer-width) minmax(320px, 1fr) var(--assistant-width); grid-template-rows: minmax(0, 1fr); overflow: hidden; }
 .panel { min-width: 0; background: var(--panel); }
 .explorer { border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
 .assistant { height: 100%; border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.explorer-resizer { position: absolute; z-index: 8; top: 0; bottom: 0; left: calc(var(--explorer-width) - 3px); width: 7px; cursor: col-resize; touch-action: none; outline: none; }
 .assistant-resizer { position: absolute; z-index: 8; top: 0; bottom: 0; right: calc(var(--assistant-width) - 3px); width: 7px; cursor: col-resize; touch-action: none; outline: none; }
-.assistant-resizer::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 1px; background: transparent; transition: background .15s, box-shadow .15s; }
+.explorer-resizer::after, .assistant-resizer::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 1px; background: transparent; transition: background .15s, box-shadow .15s; }
+.explorer-resizer:hover::after, .explorer-resizer:focus::after, body.resizing-explorer .explorer-resizer::after,
 .assistant-resizer:hover::after, .assistant-resizer:focus::after, body.resizing-assistant .assistant-resizer::after { background: var(--accent); box-shadow: 0 0 8px rgba(197, 242, 95, .55); }
-body.resizing-assistant { cursor: col-resize; user-select: none; }
-body.resizing-assistant iframe { pointer-events: none; }
+body.resizing-explorer, body.resizing-assistant { cursor: col-resize; user-select: none; }
+body.resizing-explorer iframe, body.resizing-assistant iframe { pointer-events: none; }
 .panel-heading, .assistant-title { height: 42px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; color: #929aa7; font-size: 11px; letter-spacing: .08em; }
 .panel-heading-actions { display: flex; align-items: center; gap: 2px; }
 .icon-button { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 18px; border-radius: 5px; }
@@ -148,7 +151,7 @@ kbd { border: 1px solid #343a44; border-bottom-width: 2px; border-radius: 5px; p
 .analysis-tab-close:hover { background: #343b45; color: var(--bright); }
 .fullscreen-button { font-size: 15px; }
 .assistant.fullscreen { position: fixed; z-index: 60; inset: 48px 0 0 0; width: 100%; height: calc(100dvh - 48px); border: 0; background: var(--panel); box-shadow: 0 0 50px #000b; }
-body.assistant-is-fullscreen .assistant-resizer { display: none; }
+body.assistant-is-fullscreen .explorer-resizer, body.assistant-is-fullscreen .assistant-resizer { display: none; }
 .spark { color: var(--accent); }
 .action-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 5px; padding: 10px; }
 .action { min-width: 0; min-height: 46px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 6px 4px; border: 1px solid var(--line); border-radius: 7px; background: #15181e; color: #929aa6; cursor: pointer; font-size: 10px; }
@@ -289,7 +292,7 @@ body.assistant-is-fullscreen .assistant-resizer { display: none; }
   .pinned-sidebar-section { max-height: 145px; }
   .assistant { position: static; width: 100%; height: 100%; box-shadow: none; }
   .assistant.fullscreen { position: fixed; inset: 48px 0 0 0; width: 100%; height: calc(100dvh - 48px); }
-  .assistant-resizer { display: none; }
+  .explorer-resizer, .assistant-resizer { display: none; }
   .tree-row { height: 34px; }
   .tree-mobile-action { display: block; flex: none; }
   .context-menu { left: 8px !important; right: 8px !important; top: auto !important; bottom: calc(63px + env(safe-area-inset-bottom)); width: auto; padding: 7px; border-radius: 12px; }

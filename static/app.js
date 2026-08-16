@@ -22,6 +22,8 @@ const state = {
 
 const $ = (selector) => document.querySelector(selector);
 const tree = $('#tree');
+const EXPLORER_WIDTH_KEY = 'code-browser-explorer-width';
+const DEFAULT_EXPLORER_WIDTH = 250;
 const ASSISTANT_WIDTH_KEY = 'ollama-assistant-width';
 const DEFAULT_ASSISTANT_WIDTH = 370;
 const MAX_ANALYSIS_TABS = 8;
@@ -45,6 +47,7 @@ const translations = {
     chooseFile: 'プロジェクトからファイルを選択してください', emptyTitle: 'コードを選んで、理解する',
     emptyDescription: '左のファイルツリーからソースコードを開くと、要約や詳しい解説を Ollama に依頼できます。',
     fileSearch: 'ファイル検索', summary: '要約', explain: '詳しく解説', review: 'レビュー',
+    explorerResize: 'EXPLORERの幅を変更',
     summaryTooltip: '全体の役割、構成、主要処理を短時間で把握します',
     explainTooltip: '処理の流れ、関数、データの動きを詳しく説明します',
     reviewTooltip: 'バグ、セキュリティ、性能、保守性の問題を評価します',
@@ -116,6 +119,7 @@ const translations = {
     chooseFile: 'Select a file from the project', emptyTitle: 'Select code. Understand it.',
     emptyDescription: 'Open source code from the file tree, then ask Ollama to summarize or explain it.',
     fileSearch: 'File search', summary: 'Summary', explain: 'Explain', review: 'Review',
+    explorerResize: 'Resize EXPLORER',
     summaryTooltip: 'Quickly understand the overall purpose, structure, and main behavior',
     explainTooltip: 'Learn the control flow, functions, and movement of data in detail',
     reviewTooltip: 'Evaluate bugs, security, performance, and maintainability risks',
@@ -321,6 +325,7 @@ function applyLanguage() {
   $('#emptyTitle').textContent = t('emptyTitle');
   $('#emptyDescription').textContent = t('emptyDescription');
   $('#fileSearchLabel').textContent = t('fileSearch');
+  $('#explorerResizer').setAttribute('aria-label', t('explorerResize'));
   $('#summaryActionLabel').textContent = t('summary');
   $('#explainActionLabel').textContent = t('explain');
   $('#reviewActionLabel').textContent = t('review');
@@ -527,7 +532,55 @@ function renderAnalysisTabs() {
 }
 
 function assistantWidthLimits() {
-  return {min: 280, max: Math.max(280, Math.min(760, window.innerWidth - 570))};
+  const explorerWidth = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--explorer-width')) || DEFAULT_EXPLORER_WIDTH;
+  return {min: 280, max: Math.max(280, Math.min(760, window.innerWidth - explorerWidth - 320))};
+}
+
+function explorerWidthLimits() {
+  const assistantWidth = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--assistant-width')) || DEFAULT_ASSISTANT_WIDTH;
+  return {min: 190, max: Math.max(190, Math.min(520, window.innerWidth - assistantWidth - 320))};
+}
+
+function setExplorerWidth(width, persist = true) {
+  const limits = explorerWidthLimits();
+  const next = Math.round(Math.min(limits.max, Math.max(limits.min, width)));
+  document.documentElement.style.setProperty('--explorer-width', `${next}px`);
+  $('#explorerResizer').setAttribute('aria-valuenow', String(next));
+  $('#explorerResizer').setAttribute('aria-valuemin', String(limits.min));
+  $('#explorerResizer').setAttribute('aria-valuemax', String(limits.max));
+  if (persist) localStorage.setItem(EXPLORER_WIDTH_KEY, String(next));
+}
+
+function initExplorerResizer() {
+  const saved = Number(localStorage.getItem(EXPLORER_WIDTH_KEY));
+  setExplorerWidth(Number.isFinite(saved) && saved > 0 ? saved : DEFAULT_EXPLORER_WIDTH, false);
+  const resizer = $('#explorerResizer');
+  resizer.addEventListener('pointerdown', event => {
+    if (event.button !== 0) return;
+    resizer.setPointerCapture(event.pointerId);
+    document.body.classList.add('resizing-explorer');
+  });
+  resizer.addEventListener('pointermove', event => {
+    if (!resizer.hasPointerCapture(event.pointerId)) return;
+    setExplorerWidth(event.clientX, false);
+  });
+  const finishResize = event => {
+    if (!resizer.hasPointerCapture(event.pointerId)) return;
+    resizer.releasePointerCapture(event.pointerId);
+    document.body.classList.remove('resizing-explorer');
+    const width = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--explorer-width'));
+    setExplorerWidth(width, true);
+  };
+  resizer.addEventListener('pointerup', finishResize);
+  resizer.addEventListener('pointercancel', finishResize);
+  resizer.addEventListener('dblclick', () => setExplorerWidth(DEFAULT_EXPLORER_WIDTH));
+  resizer.addEventListener('keydown', event => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home'].includes(event.key)) return;
+    event.preventDefault();
+    if (event.key === 'Home') return setExplorerWidth(DEFAULT_EXPLORER_WIDTH);
+    const current = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--explorer-width'));
+    setExplorerWidth(current + (event.key === 'ArrowLeft' ? -20 : 20));
+  });
 }
 
 function setAssistantWidth(width, persist = true) {
@@ -573,6 +626,8 @@ function initAssistantResizer() {
   window.addEventListener('resize', () => {
     const current = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--assistant-width'));
     setAssistantWidth(current, false);
+    const explorerWidth = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--explorer-width'));
+    setExplorerWidth(explorerWidth, false);
   });
 }
 
@@ -2486,6 +2541,7 @@ if ('serviceWorker' in navigator) {
 
 state.language = localStorage.getItem('code-browser-language') === 'en' ? 'en' : 'ja';
 applyLanguage();
+initExplorerResizer();
 initAssistantResizer();
 switchMobilePanel('explorer');
 init();
