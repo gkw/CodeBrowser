@@ -1,6 +1,6 @@
 # Metered Ollama Wrapper Architecture
 
-Status: design proposal; not approved for production  
+Status: separate private Stage 0/1 prototype implemented; not approved for production
 Date: 2026-08-16
 
 ## Decision
@@ -12,6 +12,8 @@ Do not implement a tokenizer for billing. Treat Ollama's final `prompt_eval_coun
 Production launch is blocked until Ollama confirms in writing that the intended multi-user commercial proxy/resale model is permitted. The public Terms do not explicitly grant resale rights and prohibit automated access without permission and use to develop competing products.
 
 The recommended product licensing split is documented in [Licensing Strategy](licensing-strategy.md): keep the public local client under MIT and operate the metered inference, identity, billing, and abuse-control backend from a separate private repository under commercial Terms.
+
+Implementation note: the proprietary `code-browser-commercial-wrapper` project now implements the non-streaming internal prototype, including hashed API tokens, operation/model allowlists, monthly and prepaid credits, atomic reservation and settlement, actor-scoped idempotency, Ollama final-count validation, `metering_unknown`, append-only usage events, a billing outbox, and authenticated usage/model APIs. Its inference kill switch remains off by default. The private project's P0 TODO keeps written Ollama authorization and the remaining commercial launch controls as blockers.
 
 ## Proposed topology
 
