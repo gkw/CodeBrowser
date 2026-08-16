@@ -86,6 +86,51 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertEqual(body["error"], "Audit limit must be between 1 and 1000")
 
+    def test_account_credits_reports_byok_without_managed_credentials(self) -> None:
+        with patch.dict(server.os.environ, {
+            "CODE_BROWSER_MANAGED_WRAPPER_URL": "",
+            "CODE_BROWSER_MANAGED_ACCESS_TOKEN": "",
+        }):
+            status, _, body = self.request("GET", "/api/account/credits")
+        self.assertEqual(status, 200)
+        self.assertEqual(body, {"available": False, "mode": "byok"})
+
+    def test_managed_credit_balance_returns_only_display_fields(self) -> None:
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self, *_args):
+                return json.dumps({
+                    "actorId": "must-not-leak",
+                    "plan": "free",
+                    "allowancePeriod": "weekly",
+                    "periodAllowanceCredits": "100.000",
+                    "periodUsedCredits": "12.500",
+                    "reservedCredits": "1.000",
+                    "remainingCredits": "86.500",
+                    "nextGrantAt": "2026-08-17T00:00:00+00:00",
+                    "requests": [{"source": "must-not-leak"}],
+                }).encode()
+
+        with (
+            patch.dict(server.os.environ, {
+                "CODE_BROWSER_MANAGED_WRAPPER_URL": "https://credits.example.test",
+                "CODE_BROWSER_MANAGED_ACCESS_TOKEN": "server-secret",
+            }),
+            patch.object(server, "urlopen", return_value=FakeResponse()) as mocked_open,
+        ):
+            balance = server.fetch_managed_credit_balance()
+        self.assertTrue(balance["available"])
+        self.assertEqual(balance["remainingCredits"], "86.500")
+        self.assertNotIn("actorId", balance)
+        self.assertNotIn("requests", balance)
+        request = mocked_open.call_args.args[0]
+        self.assertEqual(request.get_header("Authorization"), "Bearer server-secret")
+
     def test_pdf_file_endpoint_returns_extracted_read_only_text(self) -> None:
         pdf_path = self.root / "document.pdf"
         pdf_path.write_bytes(b"%PDF-1.6\nfixture")

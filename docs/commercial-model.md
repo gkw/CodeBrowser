@@ -49,7 +49,7 @@ Use a time-limited Personal trial rather than an unlimited anonymous inference a
 
 ## Free allowance and availability
 
-The initial free plan may include up to 100 CBC per allowance period. This is a discretionary allowance, not a promise of uninterrupted inference. GK Works may limit, suspend, change, or discontinue free managed inference when its upstream Ollama account, provider service, selected models, quotas, commercial permission, security posture, or operating capacity is unavailable or changes. A displayed CBC balance does not guarantee that a request can be submitted or completed.
+The initial registered free plan includes up to 100 CBC each week. The allowance renews every Monday at 00:00 UTC; unused free CBC does not accumulate or carry over. The authoritative balance view shows the current allowance, usage, remaining CBC, and next renewal time. This is a discretionary allowance, not a promise of uninterrupted inference. GK Works may limit, suspend, change, or discontinue free managed inference when its upstream Ollama account, provider service, selected models, quotas, commercial permission, security posture, or operating capacity is unavailable or changes. A displayed CBC balance does not guarantee that a request can be submitted or completed.
 
 This limitation must be visible during sign-up and in the credit view, not only in long-form terms. Customer-facing terms should describe any notice, reset, expiration, and plan-change rules before launch and receive legal review.
 

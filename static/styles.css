@@ -252,6 +252,10 @@ body.assistant-is-fullscreen .explorer-resizer, body.assistant-is-fullscreen .as
 .commit-dialog { width: min(500px, calc(100vw - 24px)); }
 .commit-dialog #commitPath { max-width: 430px; font-family: ui-monospace, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .credits-dialog { width: min(660px, calc(100vw - 24px)); }
+.account-credits-overview { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; margin-bottom: 13px; padding-bottom: 13px; border-bottom: 1px solid #2b3139; }
+.account-credits-overview .credit-metric:first-child { border-color: rgba(197,242,95,.38); background: rgba(197,242,95,.07); }
+.account-credits-overview .credit-metric:first-child strong { color: var(--accent); }
+.credit-balance-renewal { grid-column: 1 / -1; color: #7f8996; font-size: 10px; }
 .credits-overview { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; margin-bottom: 13px; }
 .credit-metric { padding: 12px; border: 1px solid #303741; border-radius: 8px; background: #101318; }
 .credit-metric span { display: block; margin-bottom: 5px; color: #75808d; font-size: 9px; text-transform: uppercase; letter-spacing: .06em; }
@@ -307,4 +311,5 @@ body.assistant-is-fullscreen .explorer-resizer, body.assistant-is-fullscreen .as
   .folder-dialog { width: calc(100vw - 20px); max-height: calc(100dvh - 30px); }
   .folder-dialog form { padding: 16px; }
   .credits-overview { grid-template-columns: 1fr; }
+  .account-credits-overview { grid-template-columns: 1fr; }
 }

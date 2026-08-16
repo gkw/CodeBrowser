@@ -40,6 +40,7 @@ let restoringWorkspace = false;
 let deferredInstallPrompt = null;
 let relationshipDiagramSequence = 0;
 let latestCreditReport = null;
+let latestAccountCredits = null;
 const utf8Encoder = new TextEncoder();
 const translations = {
   ja: {
@@ -73,6 +74,8 @@ const translations = {
     creditsDescription: 'モデル・入力・出力ごとの利用内訳です。現在の換算は暫定値で、課金額ではありません。',
     creditInput: '入力', creditOutput: '出力', creditTotal: '合計', creditModel: 'モデル', creditRequests: 'リクエスト',
     creditTokens: 'トークン', close: '閉じる', noCreditUsage: '計測済みの利用はまだありません。',
+    creditBalance: '保有CBC', creditWeeklyGrant: '毎週の無料枠', creditUsedThisPeriod: '今週の使用量',
+    creditRenews: date => `次回の100 CBC更新: ${date}`, creditUnlimited: '無制限',
     pdfPages: (extracted, total) => `${extracted}/${total || '?'}ページ抽出`, pdfTruncated: '一部のみ表示',
     pdfTextView: '抽出テキストを表示', pdfOriginalView: '原本PDFを表示',
     initialAnswer: 'ファイルを開いて解析を実行すると、ここに回答が表示されます。',
@@ -145,6 +148,8 @@ const translations = {
     creditsDescription: 'Usage by model, input, and output. The current conversion is provisional and is not a billable amount.',
     creditInput: 'Input', creditOutput: 'Output', creditTotal: 'Total', creditModel: 'Model', creditRequests: 'Requests',
     creditTokens: 'Tokens', close: 'Close', noCreditUsage: 'No measured usage yet.',
+    creditBalance: 'CBC balance', creditWeeklyGrant: 'Weekly free grant', creditUsedThisPeriod: 'Used this week',
+    creditRenews: date => `Next 100 CBC renewal: ${date}`, creditUnlimited: 'Unlimited',
     pdfPages: (extracted, total) => `${extracted}/${total || '?'} pages extracted`, pdfTruncated: 'partial text shown',
     pdfTextView: 'Show extracted text', pdfOriginalView: 'Show original PDF',
     initialAnswer: 'Open a file and run an analysis to see the response here.',
@@ -658,12 +663,37 @@ async function api(path, options) {
 }
 
 function formatCredits(value) {
-  return typeof value === 'number'
-    ? value.toLocaleString(undefined, {minimumFractionDigits: 3, maximumFractionDigits: 6})
+  const numeric = typeof value === 'string' && /^\d+(?:\.\d+)?$/.test(value) ? Number(value) : value;
+  return typeof numeric === 'number' && Number.isFinite(numeric)
+    ? numeric.toLocaleString(undefined, {minimumFractionDigits: 3, maximumFractionDigits: 6})
     : '—';
 }
 
+function renderAccountCreditBalance() {
+  const container = $('#accountCreditsOverview');
+  const balance = latestAccountCredits;
+  if (!balance?.available) {
+    container.hidden = true;
+    return;
+  }
+  container.hidden = false;
+  const remaining = balance.unlimited ? t('creditUnlimited') : `${formatCredits(balance.remainingCredits)} CBC`;
+  const renewal = balance.nextGrantAt
+    ? t('creditRenews', new Date(balance.nextGrantAt).toLocaleString()) : '';
+  container.innerHTML = `
+    <div class="credit-metric"><span>${escapeHtml(t('creditBalance'))}</span><strong>${escapeHtml(remaining)}</strong></div>
+    <div class="credit-metric"><span>${escapeHtml(t('creditWeeklyGrant'))}</span><strong>${formatCredits(balance.periodAllowanceCredits)} CBC</strong></div>
+    <div class="credit-metric"><span>${escapeHtml(t('creditUsedThisPeriod'))}</span><strong>${formatCredits(balance.periodUsedCredits)} CBC</strong></div>
+    ${renewal ? `<div class="credit-balance-renewal">${escapeHtml(renewal)}</div>` : ''}`;
+}
+
 function updateLiveCreditDisplay() {
+  if (latestAccountCredits?.available) {
+    $('#creditsTotal').textContent = latestAccountCredits.unlimited
+      ? '∞' : formatCredits(latestAccountCredits.remainingCredits);
+    $('#creditsButton').classList.remove('counting');
+    return;
+  }
   const settled = latestCreditReport?.summary?.overall?.credits?.totalCredits || 0;
   const active = state.analysisTabs.filter(tab => tab.status === 'streaming' && tab.creditPreview);
   const live = active.reduce((sum, tab) => sum + (tab.liveCreditTotal || 0), 0);
@@ -688,6 +718,7 @@ function updateTabCreditPreview(tab, chunk) {
 }
 
 function renderCreditReport() {
+  renderAccountCreditBalance();
   const overall = latestCreditReport?.summary?.overall;
   const credits = overall?.credits;
   $('#creditsTotal').textContent = credits ? formatCredits(credits.totalCredits) : '—';
@@ -716,6 +747,11 @@ function renderCreditReport() {
 
 async function refreshCreditReport() {
   try {
+    latestAccountCredits = await (await api('/api/account/credits')).json();
+  } catch (_) {
+    latestAccountCredits = null;
+  }
+  try {
     latestCreditReport = await (await api('/api/metering/audit?limit=1000')).json();
     const recordedIds = new Set((latestCreditReport.records || []).map(record => record.requestId));
     for (const tab of state.analysisTabs) {
@@ -728,6 +764,8 @@ async function refreshCreditReport() {
   } catch (_) {
     // Usage diagnostics must never interrupt browsing or analysis.
   }
+  renderAccountCreditBalance();
+  updateLiveCreditDisplay();
 }
 
 async function init() {

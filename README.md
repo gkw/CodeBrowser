@@ -291,6 +291,15 @@ CODE_BROWSER_CREDIT_MODEL_WEIGHTS='{"gpt-oss:120b":2,"gpt-oss:20b":1}'
 
 These local credits are transparent product-design diagnostics, not billable usage. A managed service must preserve the catalog version and rates used to settle each request.
 
+When Code Browser is connected to the private managed Wrapper, the same CBC button shows the authoritative remaining balance, weekly allowance, current-period usage, and next renewal time. For single-user development, keep the actor token on the Code Browser server—not in browser storage:
+
+```bash
+CODE_BROWSER_MANAGED_WRAPPER_URL=http://127.0.0.1:8787
+CODE_BROWSER_MANAGED_ACCESS_TOKEN=cbw_replace_with_actor_token
+```
+
+The HTTP exception is restricted to localhost; remote Wrapper origins must use HTTPS. This server-token bridge is for trusted single-user development only. Production account balances require the planned OIDC session and per-user authorization. BYOK users continue to see local usage diagnostics and do not consume managed CBC.
+
 ## License
 
 [MIT License](LICENSE)

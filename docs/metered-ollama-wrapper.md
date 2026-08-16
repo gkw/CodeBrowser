@@ -42,7 +42,7 @@ The client submits a product operation such as `file_summary`, `project_summary`
 Use three distinct tiers:
 
 1. **Anonymous trial** — a deliberately small promotional allowance. Limit by a server-issued anonymous grant, IP/network risk signal, device-local identifier, and bot challenge. These signals can be reset or evaded, so anonymous usage must be treated as an acquisition cost rather than a secure identity.
-2. **Registered free account** — a monthly token or cost-unit allowance after verified sign-up. Enforce user, device, IP, concurrency, model, and global limits.
+2. **Registered free account** — up to 100 CBC renewed every Monday at 00:00 UTC after verified sign-up. Unused free allowance does not accumulate. Enforce user, device, IP, concurrency, model, and global limits.
 3. **Paid account** — start with prepaid credits or a monthly included allowance plus prepaid overage. Postpaid, uncapped usage should wait until fraud controls and reconciliation are proven.
 
 When the anonymous allowance is exhausted, require registration. When the registered free allowance is exhausted, require a paid entitlement or wait for the published reset date. The server—not the client—calculates and returns remaining allowance.
@@ -172,7 +172,7 @@ Do not declare one universal acceptable error without measured traffic. Establis
 
 - **Stage 0:** internal wrapper, one model, non-streaming, upstream counters recorded, no customer billing.
 - **Stage 1:** streaming, reservation/settlement, disconnect tests, immutable price versions, usage dashboard.
-- **Stage 2:** registered free accounts, monthly reset, concurrency/rate/spend limits, anonymous trial with a very small allowance.
+- **Stage 2:** registered free accounts, weekly 100 CBC renewal, customer-visible balance, concurrency/rate/spend limits, and an anonymous trial with a very small allowance.
 - **Stage 3:** prepaid paid accounts and Stripe meter-event outbox in test mode.
 - **Stage 4:** production billing after Ollama commercial approval, reconciliation, privacy review, and abuse testing.
 

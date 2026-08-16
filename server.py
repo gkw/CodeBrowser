@@ -68,6 +68,58 @@ CONTENT_SECURITY_POLICY = (
     "img-src 'self' data:; connect-src 'self'; object-src 'none'; "
     "base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
 )
+
+
+def managed_wrapper_usage_request() -> Request | None:
+    base_url = os.environ.get("CODE_BROWSER_MANAGED_WRAPPER_URL", "").strip().rstrip("/")
+    access_token = os.environ.get("CODE_BROWSER_MANAGED_ACCESS_TOKEN", "").strip()
+    if not base_url or not access_token:
+        return None
+    parsed = urlparse(base_url)
+    local_development = parsed.hostname in {"127.0.0.1", "localhost"} and parsed.scheme == "http"
+    if (
+        (parsed.scheme != "https" and not local_development)
+        or not parsed.hostname
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+        or parsed.path not in {"", "/"}
+    ):
+        raise ValueError("CODE_BROWSER_MANAGED_WRAPPER_URL must be an HTTPS origin or a localhost development origin")
+    return Request(
+        f"{base_url}/v1/usage?limit=1",
+        headers={"Accept": "application/json", "Authorization": f"Bearer {access_token}"},
+        method="GET",
+    )
+
+
+def fetch_managed_credit_balance() -> dict[str, object]:
+    request = managed_wrapper_usage_request()
+    if request is None:
+        return {"available": False, "mode": "byok"}
+    try:
+        with urlopen(request, timeout=5) as response:
+            raw = response.read(65_537)
+            if len(raw) > 65_536:
+                return {"available": False, "mode": "managed", "reason": "invalid_response"}
+            payload = json.loads(raw)
+    except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError):
+        return {"available": False, "mode": "managed", "reason": "unavailable"}
+    if not isinstance(payload, dict):
+        return {"available": False, "mode": "managed", "reason": "invalid_response"}
+    return {
+        "available": True,
+        "mode": "managed",
+        "plan": payload.get("plan"),
+        "unlimited": payload.get("unlimited") is True,
+        "allowancePeriod": payload.get("allowancePeriod"),
+        "periodAllowanceCredits": payload.get("periodAllowanceCredits"),
+        "periodUsedCredits": payload.get("periodUsedCredits"),
+        "reservedCredits": payload.get("reservedCredits"),
+        "remainingCredits": payload.get("remainingCredits"),
+        "nextGrantAt": payload.get("nextGrantAt"),
+    }
 _ollama_probe_lock = threading.RLock()
 _ollama_probe_cache: tuple[float, tuple[str, ...], str, list[dict]] | None = None
 LOGGER = logging.getLogger("code_browser")
@@ -428,6 +480,8 @@ class RequestHandler(BaseHTTPRequestHandler):
                 except ValueError as exc:
                     raise ValueError("Audit limit must be an integer") from exc
                 self.send_json(200, self.server.metering_audit.report(limit))
+            elif parsed.path == "/api/account/credits":
+                self.send_json(200, fetch_managed_credit_balance())
             elif parsed.path == "/api/resolve-reference":
                 query = parse_qs(parsed.query)
                 self.handle_resolve_reference(
