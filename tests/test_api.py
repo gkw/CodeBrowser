@@ -102,7 +102,7 @@ class ApiTests(unittest.TestCase):
             patch.object(server.ProviderPluginClient, "list_models", return_value=["third-party-model"]),
             patch.object(server.ProviderPluginClient, "infer", return_value={
                 "content": "Plugin result", "usage": {"promptTokens": 8, "outputTokens": 3},
-            }),
+            }) as infer,
         ):
             connection.request("POST", "/api/analyze", body=payload, headers={
                 "Content-Type": "application/json",
@@ -115,8 +115,30 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(frames[0]["meta"]["host"], "plugin:ollama-compatible")
         self.assertEqual(frames[1]["content"], "Plugin result")
         self.assertEqual(frames[1]["usage"]["status"], "plugin_reported")
+        file_prompt = infer.call_args.kwargs["messages"][-1]["content"]
+        self.assertIn("## Points worth understanding", file_prompt)
         audit = self.application.metering_audit.report()
         self.assertIn("plugin:ollama-compatible", audit["summary"]["byProvider"])
+
+        project_payload = json.dumps({
+            "path": "", "root": str(self.root), "mode": "summary",
+            "model": "third-party-model", "language": "ja",
+        }).encode()
+        connection = http.client.HTTPConnection(*self.application.server_address, timeout=3)
+        with (
+            patch.object(server.ProviderPluginClient, "list_models", return_value=["third-party-model"]),
+            patch.object(server.ProviderPluginClient, "infer", return_value={"content": "構成要約", "usage": None}) as project_infer,
+        ):
+            connection.request("POST", "/api/project-summary", body=project_payload, headers={
+                "Content-Type": "application/json",
+                server.POST_REQUEST_HEADER: server.POST_REQUEST_HEADER_VALUE,
+            })
+            project_response = connection.getresponse()
+            project_response.read()
+        connection.close()
+        self.assertEqual(project_response.status, 200)
+        project_prompt = project_infer.call_args.kwargs["messages"][-1]["content"]
+        self.assertIn("## 理解しておくとよいポイント", project_prompt)
 
     def test_pwa_assets_are_served_from_installable_paths(self) -> None:
         connection = http.client.HTTPConnection(*self.application.server_address, timeout=3)
