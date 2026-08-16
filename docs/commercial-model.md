@@ -2,6 +2,13 @@
 
 Status: product proposal; prices not yet set
 
+## Target users
+
+- Developers who want to read and understand AI-generated or inherited code
+- Code reviewers and maintainers evaluating unfamiliar files, projects, risks, and proposed improvements
+- New programmers and students learning from the structure and behavior of working code
+- Ollama users looking for a focused, file-browser-first workflow for local or cloud models
+
 ## Product split
 
 Code Browser should use a three-part model:

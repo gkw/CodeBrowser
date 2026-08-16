@@ -2,6 +2,13 @@
 
 Code Browser is a local, file-browser-first web application for reading and editing project code with AI assistance. Ollama remains the built-in provider, while the public Provider Plugin SDK allows users to connect other LLM services with credentials they control. Its three-pane layout keeps the project tree and source code visible while you request summaries, detailed explanations, reviews, improvement ideas, or answers to free-form questions.
 
+## Who it is for
+
+- Developers who want to keep reading and understanding the code they create with AI
+- Code reviewers and maintainers who need to inspect unfamiliar files or projects, compare findings, and follow evidence back to the source
+- New programmers and students learning how real projects, functions, and data flows fit together
+- Ollama users who want a focused, file-browser-first way to use local or cloud models
+
 ## Start the application
 
 ```bash
