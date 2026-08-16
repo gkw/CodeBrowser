@@ -47,6 +47,8 @@ Use three distinct tiers:
 
 When the anonymous allowance is exhausted, require registration. When the registered free allowance is exhausted, require a paid entitlement or wait for the published reset date. The server—not the client—calculates and returns remaining allowance.
 
+Treat the free allowance as discretionary availability rather than guaranteed service. The product must state near sign-up and the credit balance that managed inference can be limited, suspended, changed, or discontinued if GK Works' upstream Ollama account, service, model access, quota, commercial permission, security posture, or operating capacity becomes unavailable or changes. A remaining free balance does not guarantee request execution.
+
 Avoid advertising a single undifferentiated “token” when models have different upstream economics. Display model-specific input/output usage or normalized product credits, while preserving raw input and output token counts internally.
 
 ## Authoritative request lifecycle

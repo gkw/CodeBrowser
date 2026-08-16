@@ -47,6 +47,12 @@ Do not set dollar prices until provider approval and measured unit economics exi
 
 Use a time-limited Personal trial rather than an unlimited anonymous inference allowance. Anonymous inference is easily abused and spends GK Works money before identity is established.
 
+## Free allowance and availability
+
+The initial free plan may include up to 100 CBC per allowance period. This is a discretionary allowance, not a promise of uninterrupted inference. GK Works may limit, suspend, change, or discontinue free managed inference when its upstream Ollama account, provider service, selected models, quotas, commercial permission, security posture, or operating capacity is unavailable or changes. A displayed CBC balance does not guarantee that a request can be submitted or completed.
+
+This limitation must be visible during sign-up and in the credit view, not only in long-form terms. Customer-facing terms should describe any notice, reset, expiration, and plan-change rules before launch and receive legal review.
+
 ## Billing rules to decide before launch
 
 - monthly versus annual subscription;
