@@ -9,6 +9,20 @@ Code Browser is a local, file-browser-first web application for reading and edit
 - New programmers and students learning how real projects, functions, and data flows fit together
 - Ollama users who want a focused, file-browser-first way to use local or cloud models
 
+![Ollama Code Browser showing a project tree, Python source, READ ONLY lock, and Ollama Assistant](docs/images/code-browser-overview.jpg)
+
+## Why Code Browser
+
+Many AI coding tools begin with a task and work toward autonomous changes. Code Browser begins with the repository itself: browse the file tree, read the source, select the relevant context, and then ask Ollama for help.
+
+- **Read first:** the project tree and source remain central to the workflow.
+- **Safe by default:** global `READ ONLY` is enabled at startup and enforced by the server.
+- **Human-verifiable:** explanations, reviews, model comparisons, and proposed changes stay connected to visible files and symbols.
+- **Automation with boundaries:** the optional Python Loop validates paths and hashes, runs detected tests, uses a dedicated Git branch, and rolls back failed rounds.
+- **Local-tool friendly:** use a local Ollama endpoint or connect directly to Ollama Cloud without exposing the API key to the browser.
+
+> **Project status:** early public release. The current version is tested on macOS and is intended for trusted local environments. Feedback and reproducible bug reports are welcome.
+
 ## Start the application
 
 ```bash
@@ -88,6 +102,12 @@ Code Browser does not provide user authentication. Do not use internet port forw
 - Print-ready PDF export with Japanese-language support
 - Automatic exclusion of `.git`, `node_modules`, virtual environments, build outputs, and other generated directories
 - Path validation that prevents access outside the root selected at startup or through **Open Folder**
+
+## Mobile views
+
+| Code | Ollama Assistant |
+| --- | --- |
+| <img src="docs/images/code-browser-mobile-code.jpg" alt="Code Browser mobile code view" width="360"> | <img src="docs/images/code-browser-mobile-ai.jpg" alt="Code Browser mobile Ollama Assistant view" width="360"> |
 
 ## Project structure summaries
 

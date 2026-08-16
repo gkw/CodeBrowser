@@ -1,0 +1,48 @@
+name: Early-user feedback
+description: Share setup results and workflow feedback
+title: "[Feedback]: "
+labels:
+  - feedback
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for trying this early release. Please do not share API keys, private source code, customer data, or internal paths.
+  - type: dropdown
+    id: outcome
+    attributes:
+      label: Setup outcome
+      options:
+        - Started successfully
+        - Started with workarounds
+        - Could not start
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Include your OS, Python version, Ollama version, and whether you used a local endpoint or Ollama Cloud.
+    validations:
+      required: true
+  - type: textarea
+    id: useful
+    attributes:
+      label: What was useful?
+      description: Which code-reading or review workflow helped you?
+  - type: textarea
+    id: friction
+    attributes:
+      label: What was confusing or difficult?
+      description: Include setup friction, unclear labels, missing documentation, or model compatibility problems.
+  - type: textarea
+    id: next
+    attributes:
+      label: What should improve next?
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Sensitive-data check
+      options:
+        - label: I removed API keys, private code, personal data, and other sensitive information.
+          required: true
