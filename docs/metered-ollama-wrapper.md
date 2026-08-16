@@ -11,6 +11,8 @@ Do not implement a tokenizer for billing. Treat Ollama's final `prompt_eval_coun
 
 Production launch is blocked until Ollama confirms in writing that the intended multi-user commercial proxy/resale model is permitted. The public Terms do not explicitly grant resale rights and prohibit automated access without permission and use to develop competing products.
 
+The recommended product licensing split is documented in [Licensing Strategy](licensing-strategy.md): keep the public local client under MIT and operate the metered inference, identity, billing, and abuse-control backend from a separate private repository under commercial Terms.
+
 ## Proposed topology
 
 ```text
@@ -142,6 +144,7 @@ The third comparison is a launch dependency if Ollama offers a usable export. If
 5. Verified unit economics per model, including free acquisition cost, payment fees, taxes, refunds, and fraud.
 6. Privacy terms and data-processing disclosures appropriate for customer source code.
 7. Stripe test-mode reconciliation and signed webhook handling before live billing.
+8. Customer Terms, Privacy Policy, Pricing/Credit Policy, and the public/private licensing boundary reviewed for commercial launch.
 
 ## Staged delivery
 

@@ -209,4 +209,6 @@ Verify the protocol with:
 
 [MIT License](LICENSE)
 
+The public local client remains MIT-licensed and can be used with free or paid hosted plans. A future managed inference and billing service would be governed separately by commercial Terms and is intended to live outside this public repository. See [Licensing Strategy](docs/licensing-strategy.md).
+
 This project is not affiliated with or endorsed by Ollama, Inc. Ollama is a trademark of Ollama, Inc.
