@@ -76,6 +76,7 @@ const translations = {
     creditTokens: 'トークン', close: '閉じる', noCreditUsage: '計測済みの利用はまだありません。',
     creditBalance: '保有CBC', creditWeeklyGrant: '毎週の無料枠', creditUsedThisPeriod: '今週の使用量',
     creditRenews: date => `次回の100 CBC更新: ${date}`, creditUnlimited: '無制限',
+    managedCreditsByok: 'BYOK利用では管理CBCを消費しません', managedCreditsUnavailable: '管理CBC残高を取得できません',
     pdfPages: (extracted, total) => `${extracted}/${total || '?'}ページ抽出`, pdfTruncated: '一部のみ表示',
     pdfTextView: '抽出テキストを表示', pdfOriginalView: '原本PDFを表示',
     initialAnswer: 'ファイルを開いて解析を実行すると、ここに回答が表示されます。',
@@ -150,6 +151,7 @@ const translations = {
     creditTokens: 'Tokens', close: 'Close', noCreditUsage: 'No measured usage yet.',
     creditBalance: 'CBC balance', creditWeeklyGrant: 'Weekly free grant', creditUsedThisPeriod: 'Used this week',
     creditRenews: date => `Next 100 CBC renewal: ${date}`, creditUnlimited: 'Unlimited',
+    managedCreditsByok: 'BYOK usage does not consume managed CBC', managedCreditsUnavailable: 'Managed CBC balance is unavailable',
     pdfPages: (extracted, total) => `${extracted}/${total || '?'} pages extracted`, pdfTruncated: 'partial text shown',
     pdfTextView: 'Show extracted text', pdfOriginalView: 'Show original PDF',
     initialAnswer: 'Open a file and run an analysis to see the response here.',
@@ -673,7 +675,9 @@ function renderAccountCreditBalance() {
   const container = $('#accountCreditsOverview');
   const balance = latestAccountCredits;
   if (!balance?.available) {
-    container.hidden = true;
+    container.hidden = false;
+    const message = balance?.mode === 'byok' ? t('managedCreditsByok') : t('managedCreditsUnavailable');
+    container.innerHTML = `<div class="credit-metric"><span>${escapeHtml(t('creditBalance'))}</span><strong>—</strong></div><div class="credit-balance-renewal">${escapeHtml(message)}</div>`;
     return;
   }
   container.hidden = false;
