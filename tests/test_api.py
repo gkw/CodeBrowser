@@ -86,6 +86,38 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertEqual(body["error"], "Audit limit must be between 1 and 1000")
 
+    def test_selected_provider_plugin_supplies_models_and_analysis(self) -> None:
+        self.application.provider_plugin_id = "ollama-compatible"
+        with patch.object(server.ProviderPluginClient, "list_models", return_value=["third-party-model"]):
+            status, _, body = self.request("GET", "/api/models")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["host"], "plugin:ollama-compatible")
+        self.assertEqual(body["models"], ["third-party-model"])
+
+        connection = http.client.HTTPConnection(*self.application.server_address, timeout=3)
+        payload = json.dumps({
+            "path": "sample.py", "mode": "summary", "model": "third-party-model", "language": "en",
+        }).encode()
+        with (
+            patch.object(server.ProviderPluginClient, "list_models", return_value=["third-party-model"]),
+            patch.object(server.ProviderPluginClient, "infer", return_value={
+                "content": "Plugin result", "usage": {"promptTokens": 8, "outputTokens": 3},
+            }),
+        ):
+            connection.request("POST", "/api/analyze", body=payload, headers={
+                "Content-Type": "application/json",
+                server.POST_REQUEST_HEADER: server.POST_REQUEST_HEADER_VALUE,
+            })
+            response = connection.getresponse()
+            frames = [json.loads(line) for line in response.read().decode().splitlines()]
+        connection.close()
+        self.assertEqual(response.status, 200)
+        self.assertEqual(frames[0]["meta"]["host"], "plugin:ollama-compatible")
+        self.assertEqual(frames[1]["content"], "Plugin result")
+        self.assertEqual(frames[1]["usage"]["status"], "plugin_reported")
+        audit = self.application.metering_audit.report()
+        self.assertIn("plugin:ollama-compatible", audit["summary"]["byProvider"])
+
     def test_pwa_assets_are_served_from_installable_paths(self) -> None:
         connection = http.client.HTTPConnection(*self.application.server_address, timeout=3)
         connection.request("GET", "/manifest.webmanifest")

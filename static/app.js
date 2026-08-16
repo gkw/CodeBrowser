@@ -54,15 +54,15 @@ const translations = {
     folderDescription: '閲覧するローカルディレクトリの絶対パスを入力してください。',
     directory: 'ディレクトリ', cancel: 'キャンセル', open: '開く', files: 'ファイル', code: 'コード',
     loading: '読み込み中…', emptyFolder: '空のフォルダ', operations: '操作', folderSummary: 'このフォルダ構成を要約',
-    askOllama: 'Ollama に送信中…', projectSending: '構成と主要設定ファイルを Ollama に送信中…',
+    askOllama: 'AIプロバイダーに送信中…', projectSending: '構成と主要設定ファイルをAIプロバイダーに送信中…',
     projectAnalyzing: '## プロジェクト構成を解析中…', cachedSummary: 'このセッションで生成済みのプロジェクト構成要約',
     project: 'プロジェクト構成要約', answerQuestion: '質問への回答', codeExplanation: 'コード解説',
-    target: '対象ファイル', model: 'Ollamaモデル', host: '接続先', created: '作成日時',
+    target: '対象ファイル', model: 'AIモデル', host: '接続先', created: '作成日時',
     tokenUsage: (input, output, inputError, outputError) => `入力 ${input} · 出力 ${output} tokens · 推定誤差 入力 ${inputError} / 出力 ${outputError}`,
     initialAnswer: 'ファイルを開いて解析を実行すると、ここに回答が表示されます。',
     readyAnswer: '解析方法を選んで実行してください。コードを範囲選択すると、その部分だけを解析できます。',
     selectedLines: n => `選択範囲のみ解析（${n} 行）`, lines: n => `${n} 行`,
-    connecting: '接続中…', noModels: 'モデルなし', disconnected: '接続なし', offline: 'Ollama オフライン',
+    connecting: '接続中…', noModels: 'モデルなし', disconnected: '接続なし', offline: 'プロバイダー オフライン',
     emptyResponse: '回答が空でした。別のモデルで再実行してください。',
     analysisFailed: '解析に失敗しました', analysisTimedOut: seconds => `${seconds}秒で応答が完了しなかったため、次のモデルへ切り替えました。`,
     projectEmpty: 'プロジェクト要約が空でした。別のモデルで再実行してください。',
@@ -115,15 +115,15 @@ const translations = {
     folderDescription: 'Enter the absolute path of a local directory to browse.',
     directory: 'Directory', cancel: 'Cancel', open: 'Open', files: 'Files', code: 'Code',
     loading: 'Loading…', emptyFolder: 'Empty folder', operations: 'Actions', folderSummary: 'Summarize this folder structure',
-    askOllama: 'Sending to Ollama…', projectSending: 'Sending structure and project metadata to Ollama…',
+    askOllama: 'Sending to AI provider…', projectSending: 'Sending structure and project metadata to AI provider…',
     projectAnalyzing: '## Analyzing project structure…', cachedSummary: 'Project summary generated earlier in this session',
     project: 'Project structure summary', answerQuestion: 'Answer', codeExplanation: 'Code explanation',
-    target: 'Target', model: 'Ollama model', host: 'Host', created: 'Created',
+    target: 'Target', model: 'AI model', host: 'Host', created: 'Created',
     tokenUsage: (input, output, inputError, outputError) => `Input ${input} · Output ${output} tokens · estimate error input ${inputError} / output ${outputError}`,
     initialAnswer: 'Open a file and run an analysis to see the response here.',
     readyAnswer: 'Choose an analysis action. Select a code range to analyze only that section.',
     selectedLines: n => `Analyzing selection (${n} lines)`, lines: n => `${n} lines`,
-    connecting: 'Connecting…', noModels: 'No models', disconnected: 'Disconnected', offline: 'Ollama offline',
+    connecting: 'Connecting…', noModels: 'No models', disconnected: 'Disconnected', offline: 'Provider offline',
     emptyResponse: 'The response was empty. Try another model.', analysisFailed: 'Analysis failed',
     analysisTimedOut: seconds => `The response did not complete within ${seconds} seconds, so the next model was started.`,
     projectEmpty: 'The project summary was empty. Try another model.', projectFailed: 'Project summary failed',
@@ -783,7 +783,8 @@ async function loadModels() {
       select.append(option);
     }
     $('#statusDot').classList.add('online');
-    $('#connectionText').textContent = new URL(data.host).hostname;
+    const providerHost = data.host.startsWith('plugin:') ? data.host : (new URL(data.host).hostname || data.host);
+    $('#connectionText').textContent = providerHost;
     if (!data.models.length) select.innerHTML = `<option value="">${t('noModels')}</option>`;
   } catch (error) {
     select.innerHTML = `<option value="">${t('disconnected')}</option>`;
@@ -1577,7 +1578,8 @@ async function analyzeProject(relativePath = '') {
   const targetPath = normalizedPath ? `${state.config.root}/${normalizedPath}` : state.config.root;
   state.lastMode = 'project';
   state.reportTarget = {name: targetName, path: targetPath};
-  const cacheKey = `project-summary:v3:${state.language}:${targetPath}`;
+  const providerIdentity = `${$('#connectionText').textContent}:${$('#modelSelect').value}`;
+  const cacheKey = `project-summary:v4:${state.language}:${providerIdentity}:${targetPath}`;
   const cached = sessionStorage.getItem(cacheKey);
   if (cached && /```(?:relationship|diagram)\s*\n/i.test(cached)) {
     const cachedTab = createAnalysisTab('project', state.reportTarget);
@@ -1776,7 +1778,7 @@ async function consumeAnalysisResponse(response, tabId) {
       const tab = findAnalysisTab(tabId);
       if (!tab) continue;
       if (chunk.meta) {
-        tab.host = new URL(chunk.meta.host).hostname;
+        tab.host = chunk.meta.host.startsWith('plugin:') ? chunk.meta.host : (new URL(chunk.meta.host).hostname || chunk.meta.host);
         tab.model = chunk.meta.model;
         tab.metaText = `${tab.host} · ${tab.model}`;
         if (state.activeAnalysisTabId === tabId) $('#assistantMeta').textContent = tab.metaText;
@@ -1998,7 +2000,7 @@ function savePdf() {
 <header><h1>${escapeHtml(meta.title)}</h1>
 <dl class="meta"><dt>${escapeHtml(t('target'))}</dt><dd>${escapeHtml(meta.path)}</dd><dt>${escapeHtml(t('model'))}</dt><dd>${escapeHtml(meta.model)}</dd><dt>${escapeHtml(t('host'))}</dt><dd>${escapeHtml(meta.host)}</dd><dt>${escapeHtml(t('created'))}</dt><dd>${escapeHtml(meta.created)}</dd></dl></header>
 <main class="content">${renderMarkdown(state.answerRaw)}</main>
-<footer>Generated by Ollama Code Browser</footer>
+<footer>Generated by Code Browser</footer>
 <script>window.addEventListener('load', () => setTimeout(() => window.print(), 250));<\/script>
 </body></html>`;
   popup.document.open();

@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "Code Browser · Ollama",
+  "name": "Code Browser",
   "short_name": "Code Browser",
-  "description": "Browse, understand, review, and improve source code with Ollama.",
+  "description": "Browse, understand, review, and improve source code with your selected AI provider.",
   "lang": "ja",
   "start_url": "/",
   "scope": "/",

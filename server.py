@@ -25,8 +25,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, unquote, urlparse
 from urllib.request import Request, urlopen
+from uuid import uuid4
 
 from metering import JsonlAuditStore, build_audit_record, parse_token_count
+from provider_plugins import (
+    PluginError,
+    PluginRegistry,
+    ProviderPluginClient,
+    configured_plugin_directories,
+)
 
 
 APP_DIR = Path(__file__).resolve().parent
@@ -185,6 +192,10 @@ class CodeBrowserServer(ThreadingHTTPServer):
         self.mcp_state_lock = threading.Lock()
         self._root = root.resolve()
         self._read_only = True
+        self.plugin_registry = PluginRegistry.discover(configured_plugin_directories(APP_DIR))
+        self.provider_plugin_id = os.environ.get("CODE_BROWSER_PROVIDER_PLUGIN", "").strip()
+        if self.provider_plugin_id:
+            self.plugin_registry.get(self.provider_plugin_id)
         self.metering_audit = JsonlAuditStore(METERING_AUDIT_PATH)
         self.loop_manager = LoopManager(self)
 
@@ -256,6 +267,8 @@ class RequestHandler(BaseHTTPRequestHandler):
                     "parent": str(root.parent),
                     "maxFileBytes": MAX_FILE_BYTES,
                     "readOnly": self.server.read_only,
+                    "providerPlugin": self.server.provider_plugin_id or None,
+                    "providerPlugins": self.server.plugin_registry.metadata(),
                 })
             elif parsed.path == "/api/tree":
                 self.handle_tree(parse_qs(parsed.query).get("path", [""])[0])
@@ -349,8 +362,8 @@ class RequestHandler(BaseHTTPRequestHandler):
             self.send_error_json(404, "File not found")
         except (BrokenPipeError, ConnectionResetError) as exc:
             self.log_error("client disconnected during POST %s: %s", endpoint, exc)
-        except ConnectionError as exc:
-            self.send_json(503, {"error": "Could not connect to Ollama", "detail": str(exc)})
+        except (ConnectionError, PluginError) as exc:
+            self.send_json(503, {"error": "Could not connect to the model provider", "detail": str(exc)})
         except OSError as exc:
             self.send_error_json(500, f"Operation failed: {exc}")
 
@@ -575,15 +588,31 @@ class RequestHandler(BaseHTTPRequestHandler):
     def probe_ollama(self) -> tuple[str, list[dict]]:
         return probe_ollama_models()
 
+    def provider_plugin(self) -> ProviderPluginClient | None:
+        if not self.server.provider_plugin_id:
+            return None
+        return ProviderPluginClient(self.server.plugin_registry.get(self.server.provider_plugin_id))
+
+    def discover_provider_models(self) -> tuple[str, list[str]]:
+        plugin = self.provider_plugin()
+        if plugin is not None:
+            return f"plugin:{plugin.manifest.plugin_id}", plugin.list_models()
+        host, models = self.probe_ollama()
+        return host, allowed_model_names(host, models)
+
     def handle_models(self) -> None:
         try:
-            host, models = self.probe_ollama()
-        except ConnectionError as exc:
-            self.send_json(503, {"error": "Could not connect to Ollama", "detail": str(exc)})
+            host, names = self.discover_provider_models()
+        except (ConnectionError, PluginError) as exc:
+            self.send_json(503, {"error": "Could not connect to the model provider", "detail": str(exc)})
             return
-        names = allowed_model_names(host, models)
         preferred = choose_model(names)
-        self.send_json(200, {"host": host, "models": names, "preferred": preferred})
+        self.send_json(200, {
+            "host": host,
+            "models": names,
+            "preferred": preferred,
+            "providerPlugin": self.server.provider_plugin_id or None,
+        })
 
     def handle_project_summary(self, payload: dict) -> None:
         model = str(payload.get("model", ""))
@@ -713,6 +742,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                 output_tokens=output_tokens,
                 status=status,
                 request_id=request_id,
+                provider=host,
             )
             request_id = str(record["requestId"])
             self.server.metering_audit.append(record)
@@ -784,6 +814,71 @@ class RequestHandler(BaseHTTPRequestHandler):
             if not audit_written:
                 write_audit("missing_final_frame", "".join(output_parts))
 
+    def stream_provider_chat(
+        self,
+        host: str,
+        model: str,
+        payload: dict,
+        language: str,
+        *,
+        operation: str,
+    ) -> None:
+        plugin = self.provider_plugin()
+        if plugin is None:
+            self.stream_ollama_chat(host, model, payload, language, operation=operation)
+            return
+        messages = payload.get("messages", [])
+        if not isinstance(messages, list):
+            raise ValueError("Invalid provider messages")
+        request_id = str(uuid4())
+        try:
+            result = plugin.infer(
+                request_id=request_id,
+                operation=operation,
+                model=model,
+                messages=messages,
+                maximum_output_tokens=4096,
+            )
+        except PluginError as exc:
+            self.send_json(502, {"error": "Provider plugin failed", "detail": str(exc)})
+            return
+        content = str(result["content"])
+        usage = result.get("usage")
+        prompt_tokens = usage.get("promptTokens") if isinstance(usage, dict) else None
+        output_tokens = usage.get("outputTokens") if isinstance(usage, dict) else None
+        prompt_text = "\n".join(
+            f"{message.get('role', '')}: {message.get('content', '')}"
+            for message in messages if isinstance(message, dict)
+        )
+        record = build_audit_record(
+            model=model,
+            operation=operation,
+            prompt_text=prompt_text,
+            output_text=content,
+            prompt_tokens=prompt_tokens,
+            output_tokens=output_tokens,
+            status="plugin_reported" if usage is not None else "plugin_usage_unavailable",
+            request_id=request_id,
+            provider=host,
+        )
+        self.server.metering_audit.append(record)
+        self.send_response(200)
+        self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
+        self.wfile.write(json_bytes({"meta": {"host": host, "model": model}}) + b"\n")
+        outgoing: dict[str, object] = {"content": content, "thinking": "", "done": True}
+        if usage is not None:
+            outgoing["usage"] = {
+                "requestId": request_id,
+                "status": "plugin_reported",
+                "prompt": record["prompt"],
+                "output": record["output"],
+            }
+        self.wfile.write(json_bytes(outgoing) + b"\n")
+        self.wfile.flush()
+
     def stream_project_summary(
         self,
         model: str,
@@ -792,13 +887,12 @@ class RequestHandler(BaseHTTPRequestHandler):
         *,
         operation: str,
     ) -> None:
-        host, models = self.probe_ollama()
-        available = allowed_model_names(host, models)
+        host, available = self.discover_provider_models()
         if not model or model not in available:
             model = choose_model(available) or ""
         if not model:
             raise ValueError("No Ollama models are available" if language == "en" else "利用可能な Ollama モデルがありません")
-        self.stream_ollama_chat(host, model, {
+        self.stream_provider_chat(host, model, {
             "model": model,
             "stream": True,
             "messages": messages,
@@ -824,8 +918,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         if len(target) > 120_000:
             target = target[:120_000] + "\n\n[Remaining content omitted due to the size limit]"
 
-        host, models = self.probe_ollama()
-        available = allowed_model_names(host, models)
+        host, available = self.discover_provider_models()
         if not model or model not in available:
             model = choose_model(available)
         if not model:
@@ -866,7 +959,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             ],
             "options": {"temperature": 0.2, "num_ctx": 32768},
         }
-        self.stream_ollama_chat(host, model, ollama_payload, language, operation=mode)
+        self.stream_provider_chat(host, model, ollama_payload, language, operation=mode)
 
     def serve_static(
         self,

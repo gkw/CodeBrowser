@@ -1,6 +1,6 @@
-# Ollama Code Browser
+# Code Browser
 
-Ollama Code Browser is a local, file-browser-first web application for reading and editing project code with Ollama assistance. Its three-pane layout keeps the project tree and source code visible while you request summaries, detailed explanations, reviews, improvement ideas, or answers to free-form questions.
+Code Browser is a local, file-browser-first web application for reading and editing project code with AI assistance. Ollama remains the built-in provider, while the public Provider Plugin SDK allows users to connect other LLM services with credentials they control. Its three-pane layout keeps the project tree and source code visible while you request summaries, detailed explanations, reviews, improvement ideas, or answers to free-form questions.
 
 ## Start the application
 
@@ -75,6 +75,7 @@ Code Browser does not provide user authentication. Do not use internet port forw
 - Analysis of an entire file or a source selection
 - Lightweight relationship diagrams in file and project summaries, with clickable file and symbol nodes
 - Streaming Ollama responses and model selection
+- Out-of-process Provider Plugin SDK with an Ollama-compatible BYOK reference plugin
 - Direct Markdown export with metadata
 - Print-ready PDF export with Japanese-language support
 - Automatic exclusion of `.git`, `node_modules`, virtual environments, build outputs, and other generated directories
@@ -159,6 +160,22 @@ To configure endpoints explicitly, set a comma-separated `OLLAMA_HOSTS` value in
 ```dotenv
 OLLAMA_HOSTS=http://ollama-server.local:11434,http://localhost:11434
 ```
+
+## Provider plugins
+
+Provider plugins allow direct use of other LLM backends without placing GK Works credentials or commercial billing logic in the public client. Plugins are disabled by default and run as separate processes with a declared environment-variable allowlist.
+
+To use the bundled Ollama-compatible BYOK plugin:
+
+```dotenv
+CODE_BROWSER_PROVIDER_PLUGIN=ollama-compatible
+OLLAMA_PLUGIN_BASE_URL=http://localhost:11434
+OLLAMA_PLUGIN_API_KEY=
+```
+
+Additional plugin roots can be configured with `CODE_BROWSER_PLUGIN_DIRS`. Installing a plugin grants it local code-execution privileges; install only trusted plugins. See [Provider Plugin SDK v1](docs/provider-plugin-sdk.md) for the manifest, JSON-RPC protocol, security boundary, and compatibility policy.
+
+Provider-reported token counts are diagnostic only and are never authoritative for GK Works billing. The proposed subscription and managed-usage split is documented in [Recommended Commercial Model](docs/commercial-model.md).
 
 ## Limitations and security boundaries
 

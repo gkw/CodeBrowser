@@ -26,6 +26,7 @@ class MeteringTests(unittest.TestCase):
             output_tokens=5,
             status="measured",
             request_id="request-1",
+            provider="plugin:example",
         )
         serialized = json.dumps(record)
         self.assertNotIn("private source code", serialized)
@@ -33,6 +34,7 @@ class MeteringTests(unittest.TestCase):
         self.assertEqual(record["promptBytes"], 19)
         self.assertEqual(record["prompt"]["estimatedTokens"], estimate_tokens("private source code"))
         self.assertEqual(record["prompt"]["measuredTokens"], 8)
+        self.assertEqual(record["provider"], "plugin:example")
 
     def test_report_exposes_model_error_and_missing_measurements(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -54,6 +56,7 @@ class MeteringTests(unittest.TestCase):
         self.assertEqual(summary["estimatedTokens"], 3)
         self.assertEqual(summary["measuredTokens"], 5)
         self.assertEqual(summary["aggregateErrorPercent"], -40.0)
+        self.assertIn("legacy", report["summary"]["byProvider"])
         self.assertEqual(len(report["records"]), 2)
 
     def test_read_skips_truncated_jsonl_tail(self) -> None:

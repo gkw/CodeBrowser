@@ -141,7 +141,7 @@ The third comparison is a launch dependency if Ollama offers a usable export. If
 
 Code Browser now includes a local metering-audit prototype. Every completed interactive streamed analysis preserves Ollama's final input/output counters and compares them with a deliberately simple, tokenizer-independent estimate (`ceil(UTF-8 bytes / 4)`). The estimate is useful for sizing reservations and quantifying model/language drift; it is never a billable count. The production wrapper must meter Loop and all other non-interactive operations through the same ledger as well.
 
-The UI shows measured input/output counts and signed estimation error after each response. The local endpoint `GET /api/metering/audit?limit=200` returns recent privacy-preserving records and aggregate error by model. Records contain byte counts, token counts, operation, timestamps, and request IDs, but never prompt or response text. The append-only prototype file is `.code-browser-metering-audit.jsonl` and is excluded from Git.
+The UI shows measured input/output counts and signed estimation error after each response. The local endpoint `GET /api/metering/audit?limit=200` returns recent privacy-preserving records and aggregate error by provider and model. Records contain provider identity, byte counts, token counts, operation, timestamps, and request IDs, but never prompt or response text. The append-only prototype file is `.code-browser-metering-audit.jsonl` and is excluded from Git. Provider-plugin counts remain diagnostic and are never a source of billable managed usage.
 
 Track at least these validation indicators separately for each model and operation:
 

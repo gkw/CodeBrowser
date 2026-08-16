@@ -1,0 +1,16 @@
+{
+  "id": "ollama-compatible",
+  "name": "Ollama-compatible BYOK provider",
+  "version": "1.0.0",
+  "description": "Connect Code Browser to an Ollama or Ollama-compatible API with user-owned credentials.",
+  "publisher": "GK Works, Inc",
+  "license": "MIT",
+  "homepage": "https://github.com/gkw/CodeBrowser",
+  "type": "provider",
+  "protocolVersion": 1,
+  "entrypoint": "plugin.py",
+  "environment": [
+    "OLLAMA_PLUGIN_BASE_URL",
+    "OLLAMA_PLUGIN_API_KEY"
+  ]
+}

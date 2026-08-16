@@ -58,6 +58,7 @@ def build_audit_record(
     output_tokens: int | None,
     status: str,
     request_id: str | None = None,
+    provider: str = "",
 ) -> dict[str, object]:
     estimated_prompt = estimate_tokens(prompt_text)
     estimated_output = estimate_tokens(output_text)
@@ -66,6 +67,7 @@ def build_audit_record(
         "requestId": request_id or str(uuid4()),
         "createdAt": datetime.now(timezone.utc).isoformat(),
         "model": model,
+        "provider": provider,
         "operation": operation,
         "status": status,
         "estimator": ESTIMATOR_VERSION,
@@ -86,9 +88,13 @@ def build_audit_record(
 
 def _aggregate(records: Iterable[Mapping[str, object]]) -> dict[str, object]:
     groups: dict[str, list[Mapping[str, object]]] = defaultdict(list)
+    provider_groups: dict[str, dict[str, list[Mapping[str, object]]]] = defaultdict(lambda: defaultdict(list))
     all_records = list(records)
     for record in all_records:
-        groups[str(record.get("model") or "unknown")].append(record)
+        model = str(record.get("model") or "unknown")
+        provider = str(record.get("provider") or "legacy")
+        groups[model].append(record)
+        provider_groups[provider][model].append(record)
 
     def summarize(items: list[Mapping[str, object]]) -> dict[str, object]:
         measured = 0
@@ -131,6 +137,10 @@ def _aggregate(records: Iterable[Mapping[str, object]]) -> dict[str, object]:
         "estimator": ESTIMATOR_VERSION,
         "overall": summarize(all_records),
         "byModel": {model: summarize(items) for model, items in sorted(groups.items())},
+        "byProvider": {
+            provider: {"byModel": {model: summarize(items) for model, items in sorted(models.items())}}
+            for provider, models in sorted(provider_groups.items())
+        },
     }
 
 

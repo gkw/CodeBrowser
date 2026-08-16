@@ -16,9 +16,11 @@ A paid Code Browser plan is compatible with MIT. The software license and the ho
 
 ## Recommended structure
 
-### 1. Public local client: MIT
+### 1. Public local client and Provider Plugin SDK: MIT
 
 Keep this repository and the local-first file browser under MIT. This supports adoption, inspection, self-hosting, community contributions, and the project's File Browser-first positioning.
+
+Publish the provider plugin manifest, protocol, host, and reference BYOK connectors in this MIT repository. Third-party plugin authors may choose their own compatible licenses and remain responsible for provider terms and trademarks. Installing a plugin is an explicit executable-code trust decision.
 
 The public client may include the UI for sign-in, plan display, remaining allowance, and calls to the commercial API. Those client-side integrations remain MIT and may be forked.
 
@@ -33,6 +35,8 @@ Customers pay for the service—not for permission to execute the MIT client. Pa
 - encrypted synchronization and history;
 - team accounts, policy, audit, and administration;
 - managed updates, support, reliability, and compliance features.
+
+Users of direct third-party/BYOK plugins pay their provider directly and should not incur GK Works inference usage charges. Subscription charges may still cover official builds and managed application services. See [Recommended Commercial Model](commercial-model.md).
 
 The service Terms should state that credits are service entitlements, define expiration/refund rules, and explain whether charges use raw input/output tokens or normalized product credits.
 
