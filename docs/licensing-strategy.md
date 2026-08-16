@@ -103,7 +103,7 @@ A DCO alone confirms contribution rights but does not necessarily grant broad re
 3. Sell hosted service and credits, not an exclusive license to the MIT client.
 4. Do not publish API keys, price enforcement, fraud rules, or billing credentials in the client.
 5. Obtain written Ollama permission for the intended multi-tenant commercial use before launch.
-6. Verify the exact copyright holder text in `LICENSE` (`g, GK Works, Inc`) before changing it; do not remove a possible rights holder without confirmation.
+6. Use `GK Works, Inc` as the copyright holder in `LICENSE` and release notices.
 7. Have counsel review the Terms, Privacy Policy, provider agreement, and final licensing structure before collecting payments.
 
 ## References
