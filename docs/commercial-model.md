@@ -53,6 +53,12 @@ The initial free plan may include up to 100 CBC per allowance period. This is a 
 
 This limitation must be visible during sign-up and in the credit view, not only in long-form terms. Customer-facing terms should describe any notice, reset, expiration, and plan-change rules before launch and receive legal review.
 
+## Paid-service availability
+
+For an active paid account in good standing, managed inference is a core service entitlement and should normally be available. GK Works should not reserve the same broad discretionary right used for free inference. Service may still be interrupted for provider outages, emergency security work, announced maintenance, model withdrawal, legal or commercial restrictions, and events outside GK Works' reasonable control.
+
+Do not settle CBC for a request that is rejected or fails before authoritative provider usage is received. Before launch, publish rules for planned-maintenance notice, incident communication, unavailable paid features, subscription extensions, refunds or service credits, and model substitution. Promise a numerical uptime SLA only after availability is measured and the upstream agreement can support it.
+
 ## Billing rules to decide before launch
 
 - monthly versus annual subscription;

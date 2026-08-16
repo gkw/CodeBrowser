@@ -49,6 +49,8 @@ When the anonymous allowance is exhausted, require registration. When the regist
 
 Treat the free allowance as discretionary availability rather than guaranteed service. The product must state near sign-up and the credit balance that managed inference can be limited, suspended, changed, or discontinued if GK Works' upstream Ollama account, service, model access, quota, commercial permission, security posture, or operating capacity becomes unavailable or changes. A remaining free balance does not guarantee request execution.
 
+For active paid accounts in good standing, managed inference is a core entitlement and should normally remain available. Temporary interruption may still be required for provider outages, emergency security work, maintenance, model withdrawal, legal or commercial restrictions, or events outside GK Works' reasonable control. A request rejected before authoritative provider usage is received must not settle CBC. Define incident notice, subscription-extension, refund, service-credit, and model-substitution rules before launch, and offer a numerical SLA only when both internal operations and the upstream agreement can support it.
+
 Avoid advertising a single undifferentiated “token” when models have different upstream economics. Display model-specific input/output usage or normalized product credits, while preserving raw input and output token counts internally.
 
 ## Authoritative request lifecycle
