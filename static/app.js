@@ -45,6 +45,9 @@ const translations = {
     chooseFile: 'プロジェクトからファイルを選択してください', emptyTitle: 'コードを選んで、理解する',
     emptyDescription: '左のファイルツリーからソースコードを開くと、要約や詳しい解説を Ollama に依頼できます。',
     fileSearch: 'ファイル検索', summary: '要約', explain: '詳しく解説', review: 'レビュー',
+    summaryTooltip: '全体の役割、構成、主要処理を短時間で把握します',
+    explainTooltip: '処理の流れ、関数、データの動きを詳しく説明します',
+    reviewTooltip: 'バグ、セキュリティ、性能、保守性の問題を評価します',
     improve: '改善点',
     selectionFull: 'ファイル全体を解析します', question: 'このコードについて質問…',
     generateSummary: '要約を生成', generateExplain: '詳しい解説を生成', runReview: 'レビューを実行',
@@ -113,6 +116,9 @@ const translations = {
     chooseFile: 'Select a file from the project', emptyTitle: 'Select code. Understand it.',
     emptyDescription: 'Open source code from the file tree, then ask Ollama to summarize or explain it.',
     fileSearch: 'File search', summary: 'Summary', explain: 'Explain', review: 'Review',
+    summaryTooltip: 'Quickly understand the overall purpose, structure, and main behavior',
+    explainTooltip: 'Learn the control flow, functions, and movement of data in detail',
+    reviewTooltip: 'Evaluate bugs, security, performance, and maintainability risks',
     improve: 'Improvements',
     selectionFull: 'Analyzing the entire file', question: 'Ask about this code…',
     generateSummary: 'Generate summary', generateExplain: 'Generate explanation', runReview: 'Run review',
@@ -318,6 +324,9 @@ function applyLanguage() {
   $('#summaryActionLabel').textContent = t('summary');
   $('#explainActionLabel').textContent = t('explain');
   $('#reviewActionLabel').textContent = t('review');
+  $('[data-mode="summary"]').title = t('summaryTooltip');
+  $('[data-mode="explain"]').title = t('explainTooltip');
+  $('[data-mode="review"]').title = t('reviewTooltip');
   $('#improveActionLabel').textContent = t('improve');
   $('#questionInput').placeholder = t('question');
   $('#folderDialogTitle').textContent = t('openFolder');

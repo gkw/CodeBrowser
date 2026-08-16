@@ -1,4 +1,4 @@
-const CACHE_NAME = 'code-browser-shell-v5';
+const CACHE_NAME = 'code-browser-shell-v6';
 const APP_SHELL = [
   '/',
   '/static/styles.css',
