@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import json
 import math
 import os
@@ -18,6 +19,71 @@ from uuid import uuid4
 
 
 ESTIMATOR_VERSION = "utf8_bytes_div_4_v1"
+CREDIT_UNIT = Decimal("1000")
+
+
+def _credit_decimal(name: str, default: str) -> Decimal:
+    raw = os.environ.get(name, default).strip()
+    try:
+        value = Decimal(raw)
+    except InvalidOperation as exc:
+        raise ValueError(f"{name} must be a decimal number") from exc
+    if not value.is_finite() or value < 0 or value > Decimal("1000000"):
+        raise ValueError(f"{name} must be between 0 and 1000000")
+    return value
+
+
+def credit_catalog() -> dict[str, object]:
+    """Load the provisional, configurable Code Browser Credits catalog."""
+    raw_weights = os.environ.get("CODE_BROWSER_CREDIT_MODEL_WEIGHTS", "{}").strip() or "{}"
+    try:
+        parsed_weights = json.loads(raw_weights)
+    except json.JSONDecodeError as exc:
+        raise ValueError("CODE_BROWSER_CREDIT_MODEL_WEIGHTS must be a JSON object") from exc
+    if not isinstance(parsed_weights, dict):
+        raise ValueError("CODE_BROWSER_CREDIT_MODEL_WEIGHTS must be a JSON object")
+    weights: dict[str, Decimal] = {}
+    for model, raw_weight in parsed_weights.items():
+        if not isinstance(model, str) or not model or isinstance(raw_weight, bool):
+            raise ValueError("Credit model weights must map model names to decimal values")
+        try:
+            weight = Decimal(str(raw_weight))
+        except InvalidOperation as exc:
+            raise ValueError(f"Invalid credit weight for model {model}") from exc
+        if not weight.is_finite() or weight < 0 or weight > Decimal("1000000"):
+            raise ValueError(f"Invalid credit weight for model {model}")
+        weights[model] = weight
+    return {
+        "version": os.environ.get("CODE_BROWSER_CREDIT_CATALOG_VERSION", "preview-v1").strip() or "preview-v1",
+        "inputRatePer1K": _credit_decimal("CODE_BROWSER_CREDIT_INPUT_PER_1K", "1"),
+        "outputRatePer1K": _credit_decimal("CODE_BROWSER_CREDIT_OUTPUT_PER_1K", "1"),
+        "modelWeights": weights,
+    }
+
+
+def calculate_credits(model: str, prompt_tokens: int | None, output_tokens: int | None) -> dict[str, object] | None:
+    """Return a transparent provisional credit breakdown from measured counts."""
+    if prompt_tokens is None or output_tokens is None:
+        return None
+    catalog = credit_catalog()
+    model_weight = catalog["modelWeights"].get(model, Decimal("1"))
+    input_credits = Decimal(prompt_tokens) * catalog["inputRatePer1K"] * model_weight / CREDIT_UNIT
+    output_credits = Decimal(output_tokens) * catalog["outputRatePer1K"] * model_weight / CREDIT_UNIT
+
+    def display(value: Decimal) -> float:
+        return float(value.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP))
+
+    return {
+        "name": "Code Browser Credits",
+        "catalogVersion": catalog["version"],
+        "provisional": True,
+        "modelWeight": display(model_weight),
+        "inputRatePer1K": display(catalog["inputRatePer1K"]),
+        "outputRatePer1K": display(catalog["outputRatePer1K"]),
+        "inputCredits": display(input_credits),
+        "outputCredits": display(output_credits),
+        "totalCredits": display(input_credits + output_credits),
+    }
 
 
 def parse_token_count(value: object) -> int | None:
@@ -83,6 +149,7 @@ def build_audit_record(
             "measuredTokens": output_tokens,
             **error_metrics(estimated_output, output_tokens),
         },
+        "credits": calculate_credits(model, prompt_tokens, output_tokens),
     }
 
 
@@ -101,6 +168,11 @@ def _aggregate(records: Iterable[Mapping[str, object]]) -> dict[str, object]:
         estimated_total = 0
         measured_total = 0
         absolute_percentages: list[float] = []
+        prompt_total = 0
+        output_total = 0
+        input_credit_total = Decimal("0")
+        output_credit_total = Decimal("0")
+        catalog_versions: set[str] = set()
         for item in items:
             complete = True
             for field in ("prompt", "output"):
@@ -112,6 +184,10 @@ def _aggregate(records: Iterable[Mapping[str, object]]) -> dict[str, object]:
                 actual = values.get("measuredTokens")
                 if isinstance(actual, int) and not isinstance(actual, bool):
                     measured_total += actual
+                    if field == "prompt":
+                        prompt_total += actual
+                    else:
+                        output_total += actual
                     if isinstance(estimated, int) and not isinstance(estimated, bool):
                         estimated_total += estimated
                 else:
@@ -121,6 +197,19 @@ def _aggregate(records: Iterable[Mapping[str, object]]) -> dict[str, object]:
                     absolute_percentages.append(float(absolute_percentage))
             if complete:
                 measured += 1
+                stored_credits = item.get("credits")
+                item_credits = stored_credits if isinstance(stored_credits, Mapping) else calculate_credits(
+                    str(item.get("model") or "unknown"),
+                    item.get("prompt", {}).get("measuredTokens"),
+                    item.get("output", {}).get("measuredTokens"),
+                )
+                if item_credits is not None:
+                    try:
+                        input_credit_total += Decimal(str(item_credits["inputCredits"]))
+                        output_credit_total += Decimal(str(item_credits["outputCredits"]))
+                        catalog_versions.add(str(item_credits["catalogVersion"]))
+                    except (InvalidOperation, KeyError):
+                        pass
         aggregate_error = error_metrics(estimated_total, measured_total)["errorPercent"] if measured_total else None
         return {
             "requests": len(items),
@@ -128,6 +217,16 @@ def _aggregate(records: Iterable[Mapping[str, object]]) -> dict[str, object]:
             "missingMeasurementRequests": len(items) - measured,
             "estimatedTokens": estimated_total,
             "measuredTokens": measured_total,
+            "promptTokens": prompt_total,
+            "outputTokens": output_total,
+            "credits": {
+                "name": "Code Browser Credits",
+                "catalogVersion": next(iter(catalog_versions)) if len(catalog_versions) == 1 else "mixed",
+                "provisional": True,
+                "inputCredits": float(input_credit_total),
+                "outputCredits": float(output_credit_total),
+                "totalCredits": float(input_credit_total + output_credit_total),
+            },
             "aggregateErrorPercent": aggregate_error,
             "meanAbsoluteFieldErrorPercent": round(sum(absolute_percentages) / len(absolute_percentages), 2)
             if absolute_percentages else None,

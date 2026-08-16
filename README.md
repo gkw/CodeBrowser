@@ -15,7 +15,7 @@ Open <http://127.0.0.1:8092> in a browser. To use a different port:
 PORT=9000 ./start.sh /path/to/your/project
 ```
 
-The main application uses only the Python 3 standard library, so no package installation is required.
+The main application uses only the Python 3 standard library. PDF text extraction additionally uses Poppler's `pdftotext` when available, with the Python `pypdf` package as an optional fallback.
 
 After startup, select **Open Folder** in the header to switch to another directory. Enter an absolute path to a local directory. After the switch, the application continues to prevent access outside the newly selected root.
 
@@ -73,6 +73,7 @@ Code Browser does not provide user authentication. Do not use internet port forw
 - Git branch and file-status display, plus an explicit commit action limited to the current file
 - File-name filtering with `⌘K` or `Ctrl+K`
 - Analysis of an entire file or a source selection
+- Read-only PDF text extraction, display, questions, explanations, and summaries with page markers
 - Lightweight relationship diagrams in file and project summaries, with clickable file and symbol nodes
 - Streaming Ollama responses and model selection
 - Out-of-process Provider Plugin SDK with an Ollama-compatible BYOK reference plugin
@@ -92,6 +93,24 @@ Right-click a folder in the file browser, or use the mobile overflow menu, and s
 - A recommended reading order
 
 Structure summaries are never triggered automatically at startup or when navigating between directories.
+
+## PDF documents
+
+Open a PDF like any other file, then switch between **TXT** and **PDF** in the editor header. TXT extracts selectable text locally, labels it with page markers, and enables Summary, Explain, Review, Improvements, and free-form questions. PDF displays the original document in the browser's built-in viewer through a root-confined, read-only endpoint with HTTP byte-range support. Only bounded extracted text—not the PDF binary—is sent to the selected AI provider.
+
+PDFs have a separate 100 MB source limit. At most 200 pages and 300,000 extracted characters are displayed, while an individual AI analysis uses at most 120,000 characters. The UI reports partial extraction. Image-only scans require OCR before Code Browser can read them.
+
+Install Poppler when `pdftotext` is not already available:
+
+```bash
+# macOS
+brew install poppler
+
+# Ubuntu/Debian
+sudo apt-get install poppler-utils
+```
+
+Alternatively, install `pypdf` in the Python environment used to launch Code Browser.
 
 Each new file or project summary asks the selected model for a compact, evidence-based relationship map. Code Browser renders the result locally as an SVG graph without loading an external diagram library. File and symbol nodes use the same source-navigation behavior as references in the written response. Existing cached summaries are left unchanged; rerun a summary to generate its diagram.
 
@@ -233,6 +252,17 @@ curl -sS http://127.0.0.1:8092/api/metering/audit?limit=200
 ```
 
 The estimate is only a diagnostic for reservation sizing. It is not used for billing; Ollama's final `prompt_eval_count` and `eval_count` remain authoritative. See [Metered Ollama Wrapper Architecture](docs/metered-ollama-wrapper.md#measuring-estimation-error).
+
+The top-bar **CBC** button shows provisional Code Browser Credits with input, output, and per-model breakdowns. During a streaming response the counter grows in real time with a `~` prefix using the local byte-based estimate, then settles to Ollama's authoritative input/output counters when the final frame arrives. Concurrent analyses are combined in the live total. The default preview conversion is one credit per 1,000 measured input tokens and one credit per 1,000 measured output tokens. Configure the conversion without changing source code:
+
+```bash
+CODE_BROWSER_CREDIT_CATALOG_VERSION=preview-v1
+CODE_BROWSER_CREDIT_INPUT_PER_1K=1
+CODE_BROWSER_CREDIT_OUTPUT_PER_1K=1
+CODE_BROWSER_CREDIT_MODEL_WEIGHTS='{"gpt-oss:120b":2,"gpt-oss:20b":1}'
+```
+
+These local credits are transparent product-design diagnostics, not billable usage. A managed service must preserve the catalog version and rates used to settle each request.
 
 ## License
 

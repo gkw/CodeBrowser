@@ -4,8 +4,9 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
-from metering import JsonlAuditStore, build_audit_record, estimate_tokens, parse_token_count
+from metering import JsonlAuditStore, build_audit_record, calculate_credits, estimate_tokens, parse_token_count
 
 
 class MeteringTests(unittest.TestCase):
@@ -15,6 +16,21 @@ class MeteringTests(unittest.TestCase):
         for invalid in (-1, True, 1.5, "42", None):
             with self.subTest(invalid=invalid):
                 self.assertIsNone(parse_token_count(invalid))
+
+    def test_credits_expose_input_output_and_model_weight_breakdown(self) -> None:
+        environment = {
+            "CODE_BROWSER_CREDIT_CATALOG_VERSION": "test-v2",
+            "CODE_BROWSER_CREDIT_INPUT_PER_1K": "1",
+            "CODE_BROWSER_CREDIT_OUTPUT_PER_1K": "2",
+            "CODE_BROWSER_CREDIT_MODEL_WEIGHTS": '{"large-model": 3}',
+        }
+        with patch.dict("os.environ", environment, clear=False):
+            credits = calculate_credits("large-model", 1000, 500)
+        self.assertEqual(credits["catalogVersion"], "test-v2")
+        self.assertEqual(credits["inputCredits"], 3.0)
+        self.assertEqual(credits["outputCredits"], 3.0)
+        self.assertEqual(credits["totalCredits"], 6.0)
+        self.assertEqual(credits["modelWeight"], 3.0)
 
     def test_audit_record_contains_no_source_or_response_text(self) -> None:
         record = build_audit_record(
@@ -65,6 +81,23 @@ class MeteringTests(unittest.TestCase):
             path.write_text('{"requestId":"ok"}\n{"requestId":', encoding="utf-8")
             records = JsonlAuditStore(path).read()
         self.assertEqual(records, [{"requestId": "ok"}])
+
+    def test_report_preserves_the_credit_catalog_used_by_each_request(self) -> None:
+        with patch.dict("os.environ", {
+            "CODE_BROWSER_CREDIT_INPUT_PER_1K": "1",
+            "CODE_BROWSER_CREDIT_OUTPUT_PER_1K": "1",
+            "CODE_BROWSER_CREDIT_MODEL_WEIGHTS": "{}",
+        }, clear=False):
+            record = build_audit_record(
+                model="model-a", operation="summary", prompt_text="x", output_text="y",
+                prompt_tokens=1000, output_tokens=500, status="measured",
+            )
+        with tempfile.TemporaryDirectory() as directory:
+            store = JsonlAuditStore(Path(directory) / "audit.jsonl")
+            store.append(record)
+            with patch.dict("os.environ", {"CODE_BROWSER_CREDIT_INPUT_PER_1K": "99"}, clear=False):
+                report = store.report()
+        self.assertEqual(report["summary"]["overall"]["credits"]["totalCredits"], 1.5)
 
 
 if __name__ == "__main__":

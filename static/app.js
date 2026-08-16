@@ -17,6 +17,7 @@ const state = {
   pinnedProjects: [],
   loopJob: null,
   loopRunning: false,
+  pdfViewMode: 'text',
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -36,6 +37,8 @@ let loopPollTimer = null;
 let restoringWorkspace = false;
 let deferredInstallPrompt = null;
 let relationshipDiagramSequence = 0;
+let latestCreditReport = null;
+const utf8Encoder = new TextEncoder();
 const translations = {
   ja: {
     openFolder: 'フォルダを開く', filter: 'ファイルを絞り込み', noFile: 'ファイルを選択',
@@ -59,6 +62,13 @@ const translations = {
     project: 'プロジェクト構成要約', answerQuestion: '質問への回答', codeExplanation: 'コード解説',
     target: '対象ファイル', model: 'AIモデル', host: '接続先', created: '作成日時',
     tokenUsage: (input, output, inputError, outputError) => `入力 ${input} · 出力 ${output} tokens · 推定誤差 入力 ${inputError} / 出力 ${outputError}`,
+    creditUsage: (total, input, output, weight) => `${total} Code Browser Credits（入力 ${input} + 出力 ${output}、モデル係数 ×${weight}）`,
+    creditCounting: (credits, outputTokens) => `~${credits} CBC 計測中 · 出力推定 ${outputTokens} tokens`,
+    creditsDescription: 'モデル・入力・出力ごとの利用内訳です。現在の換算は暫定値で、課金額ではありません。',
+    creditInput: '入力', creditOutput: '出力', creditTotal: '合計', creditModel: 'モデル', creditRequests: 'リクエスト',
+    creditTokens: 'トークン', close: '閉じる', noCreditUsage: '計測済みの利用はまだありません。',
+    pdfPages: (extracted, total) => `${extracted}/${total || '?'}ページ抽出`, pdfTruncated: '一部のみ表示',
+    pdfTextView: '抽出テキストを表示', pdfOriginalView: '原本PDFを表示',
     initialAnswer: 'ファイルを開いて解析を実行すると、ここに回答が表示されます。',
     readyAnswer: '解析方法を選んで実行してください。コードを範囲選択すると、その部分だけを解析できます。',
     selectedLines: n => `選択範囲のみ解析（${n} 行）`, lines: n => `${n} 行`,
@@ -120,6 +130,13 @@ const translations = {
     project: 'Project structure summary', answerQuestion: 'Answer', codeExplanation: 'Code explanation',
     target: 'Target', model: 'AI model', host: 'Host', created: 'Created',
     tokenUsage: (input, output, inputError, outputError) => `Input ${input} · Output ${output} tokens · estimate error input ${inputError} / output ${outputError}`,
+    creditUsage: (total, input, output, weight) => `${total} Code Browser Credits (input ${input} + output ${output}, model weight ×${weight})`,
+    creditCounting: (credits, outputTokens) => `~${credits} CBC counting · estimated output ${outputTokens} tokens`,
+    creditsDescription: 'Usage by model, input, and output. The current conversion is provisional and is not a billable amount.',
+    creditInput: 'Input', creditOutput: 'Output', creditTotal: 'Total', creditModel: 'Model', creditRequests: 'Requests',
+    creditTokens: 'Tokens', close: 'Close', noCreditUsage: 'No measured usage yet.',
+    pdfPages: (extracted, total) => `${extracted}/${total || '?'} pages extracted`, pdfTruncated: 'partial text shown',
+    pdfTextView: 'Show extracted text', pdfOriginalView: 'Show original PDF',
     initialAnswer: 'Open a file and run an analysis to see the response here.',
     readyAnswer: 'Choose an analysis action. Select a code range to analyze only that section.',
     selectedLines: n => `Analyzing selection (${n} lines)`, lines: n => `${n} lines`,
@@ -180,7 +197,7 @@ function openWorkspaceDatabase() {
 async function writeWorkspaceState() {
   if (!state.config) return;
   const tabs = state.analysisTabs.map(tab => {
-    const {controller, ...saved} = tab;
+    const {controller, creditPreview, liveCreditTotal, liveOutputBytes, pendingCredits, pendingRequestId, ...saved} = tab;
     return saved;
   });
   const value = {
@@ -320,6 +337,10 @@ function applyLanguage() {
   $('#clearButton').setAttribute('aria-label', t('clearAnswer'));
   $('#copyPathButton').title = t('copyPath');
   $('#copyPathButton').setAttribute('aria-label', t('copyPath'));
+  $('#pdfTextViewButton').title = t('pdfTextView');
+  $('#pdfTextViewButton').setAttribute('aria-label', t('pdfTextView'));
+  $('#pdfOriginalViewButton').title = t('pdfOriginalView');
+  $('#pdfOriginalViewButton').setAttribute('aria-label', t('pdfOriginalView'));
   $('#editFileButton').title = t('editFile');
   $('#editFileButton').setAttribute('aria-label', t('editFile'));
   $('#saveFileButton').textContent = t('saveFile');
@@ -336,6 +357,11 @@ function applyLanguage() {
   $('#loopLabel').textContent = t('loop');
   $('#stopLoopLabel').textContent = t('stopLoop');
   $('#pinnedProjectsTitle').textContent = t('pinnedProjects');
+  $('#creditsButton').title = t('creditsDescription');
+  $('#creditsDialogTitle').textContent = 'Code Browser Credits';
+  $('#creditsDialogDescription').textContent = t('creditsDescription');
+  $('#closeCreditsButton').textContent = t('close');
+  renderCreditReport();
   $('#pinnedSidebarTitle').textContent = state.language === 'en' ? 'PINNED PROJECTS' : '固定したプロジェクト';
   renderPinnedProjects();
   updateReadOnlyButton();
@@ -404,6 +430,11 @@ function createAnalysisTab(mode, target, requestedModel = $('#modelSelect').valu
     projectRoot: state.config?.root || '',
     status: 'streaming',
     controller: null,
+    creditPreview: null,
+    liveCreditTotal: 0,
+    liveOutputBytes: 0,
+    pendingCredits: 0,
+    pendingRequestId: null,
   };
   while (state.analysisTabs.length >= MAX_ANALYSIS_TABS) {
     const removed = state.analysisTabs.shift();
@@ -411,6 +442,7 @@ function createAnalysisTab(mode, target, requestedModel = $('#modelSelect').valu
   }
   state.analysisTabs.push(tab);
   state.activeAnalysisTabId = tab.id;
+  updateLiveCreditDisplay();
   renderAnalysisTabs();
   return tab;
 }
@@ -457,6 +489,7 @@ function closeAnalysisTab(id) {
     }
   }
   renderAnalysisTabs();
+  updateLiveCreditDisplay();
   scheduleWorkspaceSave(0);
 }
 
@@ -560,6 +593,79 @@ async function api(path, options) {
   return response;
 }
 
+function formatCredits(value) {
+  return typeof value === 'number'
+    ? value.toLocaleString(undefined, {minimumFractionDigits: 3, maximumFractionDigits: 6})
+    : '—';
+}
+
+function updateLiveCreditDisplay() {
+  const settled = latestCreditReport?.summary?.overall?.credits?.totalCredits || 0;
+  const active = state.analysisTabs.filter(tab => tab.status === 'streaming' && tab.creditPreview);
+  const live = active.reduce((sum, tab) => sum + (tab.liveCreditTotal || 0), 0);
+  const pending = state.analysisTabs.reduce((sum, tab) => sum + (tab.pendingCredits || 0), 0);
+  const counting = active.length > 0;
+  $('#creditsTotal').textContent = `${counting ? '~' : ''}${formatCredits(settled + live + pending)}`;
+  $('#creditsButton').classList.toggle('counting', counting);
+}
+
+function updateTabCreditPreview(tab, chunk) {
+  const preview = tab.creditPreview;
+  const credits = preview?.credits;
+  if (!credits) return;
+  const generated = `${chunk.thinking || ''}${chunk.content || ''}`;
+  if (generated) tab.liveOutputBytes = (tab.liveOutputBytes || 0) + utf8Encoder.encode(generated).length;
+  const outputTokens = Math.ceil((tab.liveOutputBytes || 0) / 4);
+  const outputCredits = outputTokens * credits.outputRatePer1K * credits.modelWeight / 1000;
+  tab.liveCreditTotal = credits.inputCredits + outputCredits;
+  tab.metaText = `${tab.host} · ${tab.model} · ${t('creditCounting', formatCredits(tab.liveCreditTotal), outputTokens.toLocaleString())}`;
+  if (state.activeAnalysisTabId === tab.id) $('#assistantMeta').textContent = tab.metaText;
+  updateLiveCreditDisplay();
+}
+
+function renderCreditReport() {
+  const overall = latestCreditReport?.summary?.overall;
+  const credits = overall?.credits;
+  $('#creditsTotal').textContent = credits ? formatCredits(credits.totalCredits) : '—';
+  if (!overall || !overall.fullyMeasuredRequests) {
+    $('#creditsOverview').innerHTML = `<div class="credit-metric"><span>Code Browser Credits</span><strong>0.000</strong></div>`;
+    $('#creditsBreakdown').innerHTML = `<div class="pinned-projects-empty">${escapeHtml(t('noCreditUsage'))}</div>`;
+    updateLiveCreditDisplay();
+    return;
+  }
+  $('#creditsOverview').innerHTML = `
+    <div class="credit-metric"><span>${escapeHtml(t('creditTotal'))}</span><strong>${formatCredits(credits.totalCredits)} CBC</strong></div>
+    <div class="credit-metric"><span>${escapeHtml(t('creditInput'))}</span><strong>${formatCredits(credits.inputCredits)} CBC</strong></div>
+    <div class="credit-metric"><span>${escapeHtml(t('creditOutput'))}</span><strong>${formatCredits(credits.outputCredits)} CBC</strong></div>`;
+  const rows = Object.entries(latestCreditReport.summary.byModel || {}).map(([model, item]) => `
+    <tr><td>${escapeHtml(model)}</td><td>${item.requests.toLocaleString()}</td>
+    <td>${(item.promptTokens || 0).toLocaleString()}</td><td>${formatCredits(item.credits?.inputCredits)}</td>
+    <td>${(item.outputTokens || 0).toLocaleString()}</td><td>${formatCredits(item.credits?.outputCredits)}</td>
+    <td>${formatCredits(item.credits?.totalCredits)}</td></tr>`).join('');
+  $('#creditsBreakdown').innerHTML = `<table class="credits-table"><thead><tr>
+    <th>${escapeHtml(t('creditModel'))}</th><th>${escapeHtml(t('creditRequests'))}</th>
+    <th>${escapeHtml(t('creditInput'))} ${escapeHtml(t('creditTokens'))}</th><th>${escapeHtml(t('creditInput'))} CBC</th>
+    <th>${escapeHtml(t('creditOutput'))} ${escapeHtml(t('creditTokens'))}</th><th>${escapeHtml(t('creditOutput'))} CBC</th>
+    <th>${escapeHtml(t('creditTotal'))} CBC</th></tr></thead><tbody>${rows}</tbody></table>`;
+  updateLiveCreditDisplay();
+}
+
+async function refreshCreditReport() {
+  try {
+    latestCreditReport = await (await api('/api/metering/audit?limit=1000')).json();
+    const recordedIds = new Set((latestCreditReport.records || []).map(record => record.requestId));
+    for (const tab of state.analysisTabs) {
+      if (tab.pendingRequestId && recordedIds.has(tab.pendingRequestId)) {
+        tab.pendingRequestId = null;
+        tab.pendingCredits = 0;
+      }
+    }
+    renderCreditReport();
+  } catch (_) {
+    // Usage diagnostics must never interrupt browsing or analysis.
+  }
+}
+
 async function init() {
   loadPinnedProjects();
   try {
@@ -577,6 +683,7 @@ async function init() {
   await loadModels();
   await restoreWorkspaceState();
   await pollLoopStatus();
+  await refreshCreditReport();
 }
 
 async function changeRoot(path) {
@@ -764,9 +871,28 @@ function resetEditor() {
   $('#codeEditor').hidden = true;
   $('#codeWrap').classList.remove('editing');
   $('#codeWrap').classList.add('hidden');
+  $('#pdfViewControls').hidden = true;
+  $('#pdfView').hidden = true;
+  $('#pdfView').removeAttribute('src');
+  $('#pdfView').dataset.path = '';
+  state.pdfViewMode = 'text';
   $('#emptyState').classList.remove('hidden');
   $('#analyzeButton').disabled = true;
   clearAnswer();
+}
+
+function setPdfView(mode) {
+  if (!state.file?.document) return;
+  const original = mode === 'original';
+  state.pdfViewMode = original ? 'original' : 'text';
+  $('#codeWrap').classList.toggle('hidden', original);
+  $('#pdfView').hidden = !original;
+  $('#pdfTextViewButton').classList.toggle('active', !original);
+  $('#pdfOriginalViewButton').classList.toggle('active', original);
+  if (original && $('#pdfView').dataset.path !== state.file.path) {
+    $('#pdfView').src = `/api/pdf?path=${encodeURIComponent(state.file.path)}#view=FitH`;
+    $('#pdfView').dataset.path = state.file.path;
+  }
 }
 
 async function loadModels() {
@@ -866,11 +992,23 @@ async function openFile(path, row = null, options = {}) {
     $('#copyPathButton').disabled = false;
     renderCodeContent(data.content);
     $('#languageLabel').textContent = data.language;
-    $('#fileStats').textContent = `${t('lines', data.lines)}  ·  ${formatBytes(data.size)}`;
+    const documentStats = data.document
+      ? `  ·  ${t('pdfPages', data.document.extractedPages, data.document.totalPages)}${data.document.truncated ? `  ·  ${t('pdfTruncated')}` : ''}`
+      : '';
+    $('#fileStats').textContent = `${t('lines', data.lines)}  ·  ${formatBytes(data.size)}${documentStats}`;
     $('#emptyState').classList.add('hidden');
     $('#codeWrap').classList.remove('hidden');
+    $('#pdfViewControls').hidden = !data.document;
+    if (data.document) {
+      $('#pdfView').dataset.path = '';
+      setPdfView('text');
+    } else {
+      $('#pdfView').hidden = true;
+      $('#pdfView').removeAttribute('src');
+      $('#pdfView').dataset.path = '';
+    }
     $('#analyzeButton').disabled = false;
-    $('#editFileButton').disabled = state.readOnly;
+    $('#editFileButton').disabled = state.readOnly || data.editable === false;
     updateGitStatus();
     if (!preserveAnalysis) {
       state.activeAnalysisTabId = null;
@@ -1059,7 +1197,7 @@ function updateReadOnlyButton() {
   button.setAttribute('aria-pressed', String(state.readOnly));
   button.textContent = state.readOnly ? `🔒 ${t('readOnly')}` : `🔓 ${t('editingEnabled')}`;
   button.title = t(state.readOnly ? 'unlockEditing' : 'lockEditing');
-  $('#editFileButton').disabled = state.readOnly || !state.file;
+  $('#editFileButton').disabled = state.readOnly || !state.file || state.file.editable === false;
   $('#loopButton').disabled = state.readOnly || state.loopRunning;
   updateGitStatus();
 }
@@ -1289,7 +1427,7 @@ function finishEditing() {
   $('#editFileButton').hidden = false;
   $('#saveFileButton').hidden = true;
   $('#cancelEditButton').hidden = true;
-  $('#editFileButton').disabled = state.readOnly || !state.file;
+  $('#editFileButton').disabled = state.readOnly || !state.file || state.file.editable === false;
   $('#analyzeButton').disabled = !state.file;
   $('.file-dot')?.classList.remove('dirty');
   updateGitStatus();
@@ -1518,6 +1656,11 @@ async function analyze(mode = state.mode, question = '', options = {}) {
     analysisTab.metaText = '';
     analysisTab.model = requestedModel;
     analysisTab.status = 'streaming';
+    analysisTab.creditPreview = null;
+    analysisTab.liveCreditTotal = 0;
+    analysisTab.liveOutputBytes = 0;
+    analysisTab.pendingCredits = 0;
+    analysisTab.pendingRequestId = null;
     analysisTab.controller?.abort();
     state.activeAnalysisTabId = analysisTab.id;
     renderAnalysisTabs();
@@ -1563,6 +1706,9 @@ async function analyze(mode = state.mode, question = '', options = {}) {
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
     analysisTab.status = failed ? 'failed' : 'complete';
+    analysisTab.creditPreview = null;
+    analysisTab.liveCreditTotal = 0;
+    updateLiveCreditDisplay();
     analysisTab.controller = null;
     renderAnalysisTabs();
     if (state.activeAnalysisTabId === analysisTab.id) $('#answer').classList.remove('loading');
@@ -1780,9 +1926,14 @@ async function consumeAnalysisResponse(response, tabId) {
       if (chunk.meta) {
         tab.host = chunk.meta.host.startsWith('plugin:') ? chunk.meta.host : (new URL(chunk.meta.host).hostname || chunk.meta.host);
         tab.model = chunk.meta.model;
+        tab.creditPreview = chunk.meta.creditPreview || null;
+        tab.liveCreditTotal = chunk.meta.creditPreview?.credits?.inputCredits || 0;
+        tab.liveOutputBytes = 0;
         tab.metaText = `${tab.host} · ${tab.model}`;
         if (state.activeAnalysisTabId === tabId) $('#assistantMeta').textContent = tab.metaText;
+        updateLiveCreditDisplay();
       }
+      if (chunk.content || chunk.thinking) updateTabCreditPreview(tab, chunk);
       if (chunk.content) {
         tab.content += chunk.content;
         if (state.activeAnalysisTabId === tabId) {
@@ -1793,6 +1944,11 @@ async function consumeAnalysisResponse(response, tabId) {
       }
       if (chunk.usage) {
         tab.usage = chunk.usage;
+        tab.pendingCredits = chunk.usage.credits?.totalCredits || 0;
+        tab.pendingRequestId = chunk.usage.requestId || null;
+        tab.creditPreview = null;
+        tab.liveCreditTotal = 0;
+        updateLiveCreditDisplay();
         const count = value => Number.isInteger(value) ? value.toLocaleString() : '—';
         const error = value => typeof value === 'number' ? `${value > 0 ? '+' : ''}${value.toFixed(2)}%` : '—';
         const usageText = t(
@@ -1802,8 +1958,14 @@ async function consumeAnalysisResponse(response, tabId) {
           error(chunk.usage.prompt?.errorPercent),
           error(chunk.usage.output?.errorPercent),
         );
-        tab.metaText = `${tab.host} · ${tab.model} · ${usageText}`;
+        const credit = chunk.usage.credits;
+        const creditText = credit ? t(
+          'creditUsage', formatCredits(credit.totalCredits), formatCredits(credit.inputCredits),
+          formatCredits(credit.outputCredits), credit.modelWeight,
+        ) : '';
+        tab.metaText = `${tab.host} · ${tab.model} · ${creditText ? `${creditText} · ` : ''}${usageText}`;
         if (state.activeAnalysisTabId === tabId) $('#assistantMeta').textContent = tab.metaText;
+        refreshCreditReport();
       }
     }
     if (done) break;
@@ -2125,7 +2287,7 @@ function applyFilter() {
 
 function showTreeError(message) { tree.innerHTML = `<div class="tree-row"><span>!</span><span>${escapeHtml(message)}</span></div>`; }
 function formatBytes(bytes) { return bytes < 1024 ? `${bytes} B` : bytes < 1048576 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1048576).toFixed(1)} MB`; }
-function fileIcon(name) { const ext = name.split('.').pop().toLowerCase(); return ['js','ts','tsx','jsx'].includes(ext) ? 'JS' : ['py'].includes(ext) ? 'Py' : ['md'].includes(ext) ? 'M↓' : ['json','yaml','yml','toml'].includes(ext) ? '{}' : '·'; }
+function fileIcon(name) { const ext = name.split('.').pop().toLowerCase(); return ['js','ts','tsx','jsx'].includes(ext) ? 'JS' : ['py'].includes(ext) ? 'Py' : ext === 'pdf' ? 'PDF' : ['md'].includes(ext) ? 'M↓' : ['json','yaml','yml','toml'].includes(ext) ? '{}' : '·'; }
 function escapeHtml(value) { return String(value).replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch])); }
 
 document.querySelectorAll('.action').forEach(button => button.addEventListener('click', () => {
@@ -2149,6 +2311,12 @@ $('#clearButton').addEventListener('click', () => {
   else clearAnswer();
 });
 $('#fullscreenButton').addEventListener('click', () => toggleAssistantFullscreen());
+$('#pdfTextViewButton').addEventListener('click', () => setPdfView('text'));
+$('#pdfOriginalViewButton').addEventListener('click', () => setPdfView('original'));
+$('#creditsButton').addEventListener('click', async () => {
+  await refreshCreditReport();
+  $('#creditsDialog').showModal();
+});
 $('#saveMarkdownButton').addEventListener('click', saveMarkdown);
 $('#savePdfButton').addEventListener('click', savePdf);
 $('#copyPathButton').addEventListener('click', async () => {

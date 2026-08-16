@@ -86,6 +86,71 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertEqual(body["error"], "Audit limit must be between 1 and 1000")
 
+    def test_pdf_file_endpoint_returns_extracted_read_only_text(self) -> None:
+        pdf_path = self.root / "document.pdf"
+        pdf_path.write_bytes(b"%PDF-1.6\nfixture")
+        extracted = {
+            "content": "[Page 1]\nExtracted text",
+            "totalPages": 1,
+            "extractedPages": 1,
+            "truncated": False,
+            "engine": "test",
+        }
+        with patch.object(server, "extract_pdf_text", return_value=extracted):
+            status, _, body = self.request("GET", "/api/file?path=document.pdf")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["content"], extracted["content"])
+        self.assertEqual(body["language"], "PDF text")
+        self.assertFalse(body["editable"])
+        self.assertEqual(body["document"]["totalPages"], 1)
+
+    def test_pdf_viewer_streams_byte_ranges(self) -> None:
+        payload = b"%PDF-1.6\n0123456789"
+        (self.root / "document.pdf").write_bytes(payload)
+        connection = http.client.HTTPConnection(*self.application.server_address, timeout=3)
+        connection.request("GET", "/api/pdf?path=document.pdf", headers={"Range": "bytes=5-11"})
+        response = connection.getresponse()
+        body = response.read()
+        connection.close()
+        self.assertEqual(response.status, 206)
+        self.assertEqual(response.getheader("Content-Type"), "application/pdf")
+        self.assertEqual(response.getheader("Accept-Ranges"), "bytes")
+        self.assertEqual(response.getheader("Content-Range"), f"bytes 5-11/{len(payload)}")
+        self.assertIn("frame-ancestors 'self'", response.getheader("Content-Security-Policy"))
+        self.assertEqual(body, payload[5:12])
+
+    def test_pdf_analysis_uses_document_prompt_instead_of_code_prompt(self) -> None:
+        (self.root / "document.pdf").write_bytes(b"%PDF-1.6\nfixture")
+        self.application.provider_plugin_id = "ollama-compatible"
+        extracted = {
+            "content": "[Page 1]\nA mathematical document.",
+            "totalPages": 1,
+            "extractedPages": 1,
+            "truncated": False,
+            "engine": "test",
+        }
+        connection = http.client.HTTPConnection(*self.application.server_address, timeout=3)
+        payload = json.dumps({
+            "path": "document.pdf", "mode": "summary", "model": "third-party-model", "language": "en",
+        }).encode()
+        with (
+            patch.object(server, "extract_pdf_text", return_value=extracted),
+            patch.object(server.ProviderPluginClient, "list_models", return_value=["third-party-model"]),
+            patch.object(server.ProviderPluginClient, "infer", return_value={"content": "Document summary", "usage": None}) as infer,
+        ):
+            connection.request("POST", "/api/analyze", body=payload, headers={
+                "Content-Type": "application/json",
+                server.POST_REQUEST_HEADER: server.POST_REQUEST_HEADER_VALUE,
+            })
+            response = connection.getresponse()
+            response.read()
+        connection.close()
+        self.assertEqual(response.status, 200)
+        prompt = infer.call_args.kwargs["messages"][-1]["content"]
+        self.assertIn("<document>", prompt)
+        self.assertIn("Points worth understanding", prompt)
+        self.assertNotIn("Relationship diagram", prompt)
+
     def test_selected_provider_plugin_supplies_models_and_analysis(self) -> None:
         self.application.provider_plugin_id = "ollama-compatible"
         with patch.object(server.ProviderPluginClient, "list_models", return_value=["third-party-model"]):
@@ -113,6 +178,9 @@ class ApiTests(unittest.TestCase):
         connection.close()
         self.assertEqual(response.status, 200)
         self.assertEqual(frames[0]["meta"]["host"], "plugin:ollama-compatible")
+        self.assertTrue(frames[0]["meta"]["creditPreview"]["estimated"])
+        self.assertGreater(frames[0]["meta"]["creditPreview"]["promptTokens"], 0)
+        self.assertIsNotNone(frames[0]["meta"]["creditPreview"]["credits"])
         self.assertEqual(frames[1]["content"], "Plugin result")
         self.assertEqual(frames[1]["usage"]["status"], "plugin_reported")
         file_prompt = infer.call_args.kwargs["messages"][-1]["content"]

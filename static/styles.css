@@ -25,6 +25,11 @@ button { color: inherit; }
 .open-folder-button:hover, .install-app-button:hover { border-color: #4e5763; color: var(--bright); }
 .install-app-button { border-color: rgba(197,242,95,.4); color: var(--accent); }
 .install-app-button[hidden] { display: none; }
+.credits-button { height: 29px; display: flex; align-items: center; gap: 6px; padding: 0 9px; border: 1px solid rgba(126,182,255,.35); border-radius: 6px; background: rgba(126,182,255,.08); color: #a9ceff; cursor: pointer; white-space: nowrap; font-size: 10px; }
+.credits-button:hover { border-color: var(--blue); background: rgba(126,182,255,.14); }
+.credits-button strong { color: #d7eaff; font-variant-numeric: tabular-nums; }
+.credits-button.counting { border-color: rgba(197,242,95,.55); box-shadow: 0 0 10px rgba(197,242,95,.12); }
+.credits-button.counting strong { color: var(--accent); animation: credit-counting 1.1s ease-in-out infinite; }
 .read-only-toggle { height: 29px; padding: 0 10px; border: 1px solid #414955; border-radius: 6px; background: #171a20; color: #8f98a5; cursor: pointer; white-space: nowrap; font-size: 10px; font-weight: 750; letter-spacing: .04em; }
 .read-only-toggle.active { border-color: #d99a59; background: rgba(217,154,89,.12); color: #efb877; }
 .read-only-toggle:not(.active) { border-color: rgba(197,242,95,.42); color: var(--accent); }
@@ -81,6 +86,11 @@ body.resizing-assistant iframe { pointer-events: none; }
 .file-dot.dirty { background: #e7b85f; box-shadow: 0 0 6px rgba(231,184,95,.45); }
 .file-path-bar { height: 32px; display: flex; align-items: center; border-bottom: 1px solid #20242b; }
 .breadcrumbs { min-width: 0; flex: 1; padding: 0 14px; color: #7d8591; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pdf-view-controls { flex: none; height: 25px; display: flex; margin-right: 6px; padding: 2px; border: 1px solid #303741; border-radius: 6px; background: #111419; }
+.pdf-view-controls[hidden] { display: none; }
+.pdf-view-controls button { min-width: 38px; padding: 0 7px; border: 0; border-radius: 4px; background: transparent; color: #737d8a; cursor: pointer; font-size: 9px; font-weight: 700; }
+.pdf-view-controls button:hover { color: var(--bright); }
+.pdf-view-controls button.active { background: rgba(126,182,255,.16); color: #b9d8ff; }
 .editor-actions { height: 31px; display: flex; align-items: center; border-left: 1px solid #20242b; }
 .editor-actions button { height: 30px; min-width: 31px; padding: 0 8px; border: 0; border-right: 1px solid #20242b; background: transparent; color: #89929e; cursor: pointer; font-size: 11px; }
 .editor-actions button:not(:disabled):hover { color: var(--accent); background: var(--accent-dim); }
@@ -97,6 +107,8 @@ body.resizing-assistant iframe { pointer-events: none; }
 kbd { border: 1px solid #343a44; border-bottom-width: 2px; border-radius: 5px; padding: 2px 6px; color: #9ca5b1; background: #181b21; }
 .code-wrap { flex: 1; display: grid; grid-template-columns: auto 1fr; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; line-height: 1.65; }
 .code-wrap.hidden, .empty-state.hidden { display: none; }
+.pdf-view { flex: 1; min-height: 0; width: 100%; border: 0; background: #252a31; }
+.pdf-view[hidden] { display: none; }
 .code-wrap.editing { display: block; }
 .code-wrap.editing .line-numbers, .code-wrap.editing .code-view { display: none; }
 .line-numbers { position: sticky; left: 0; z-index: 1; padding: 14px 11px 30px 12px; background: #101318; border-right: 1px solid #1c2026; text-align: right; color: #505865; user-select: none; white-space: pre; }
@@ -236,8 +248,20 @@ body.assistant-is-fullscreen .assistant-resizer { display: none; }
 .dialog-actions button:disabled { opacity: .5; cursor: wait; }
 .commit-dialog { width: min(500px, calc(100vw - 24px)); }
 .commit-dialog #commitPath { max-width: 430px; font-family: ui-monospace, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.credits-dialog { width: min(660px, calc(100vw - 24px)); }
+.credits-overview { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; margin-bottom: 13px; }
+.credit-metric { padding: 12px; border: 1px solid #303741; border-radius: 8px; background: #101318; }
+.credit-metric span { display: block; margin-bottom: 5px; color: #75808d; font-size: 9px; text-transform: uppercase; letter-spacing: .06em; }
+.credit-metric strong { color: #dce8f7; font: 600 16px ui-monospace, monospace; }
+.credits-breakdown { max-height: 310px; margin-bottom: 15px; overflow: auto; border: 1px solid #303741; border-radius: 8px; }
+.credits-table { width: 100%; border-collapse: collapse; font-size: 10px; }
+.credits-table th, .credits-table td { padding: 8px 9px; border-bottom: 1px solid #272d35; text-align: right; font-variant-numeric: tabular-nums; }
+.credits-table th { position: sticky; top: 0; background: #181c22; color: #7f8996; font-weight: 600; }
+.credits-table th:first-child, .credits-table td:first-child { text-align: left; font-family: ui-monospace, monospace; }
+.credits-table tr:last-child td { border-bottom: 0; }
 .mobile-nav { display: none; }
 @keyframes blink { 50% { opacity: 0; } }
+@keyframes credit-counting { 50% { opacity: .68; } }
 @media (min-width: 700px) {
   .assistant.fullscreen .action-grid { grid-template-columns: repeat(4, minmax(110px, 160px)); justify-content: center; }
   .assistant.fullscreen .action { min-height: 38px; flex-direction: row; padding: 0 10px; }
@@ -249,6 +273,8 @@ body.assistant-is-fullscreen .assistant-resizer { display: none; }
   .open-folder-button { display: block; max-width: 125px; overflow: hidden; text-overflow: ellipsis; }
   .install-app-button { flex: none; width: 34px; padding: 0; overflow: hidden; font-size: 0; }
   .install-app-button span:first-child { font-size: 14px; }
+  .credits-button { flex: none; width: 54px; justify-content: center; padding: 0 5px; }
+  .credits-button span { display: none; }
   .read-only-toggle { flex: none; width: 34px; padding: 0; overflow: hidden; font-size: 0; }
   .read-only-toggle::before { content: "🔓"; font-size: 13px; }
   .read-only-toggle.active::before { content: "🔒"; }
@@ -277,4 +303,5 @@ body.assistant-is-fullscreen .assistant-resizer { display: none; }
   .mobile-nav button.active { color: var(--accent); }
   .folder-dialog { width: calc(100vw - 20px); max-height: calc(100dvh - 30px); }
   .folder-dialog form { padding: 16px; }
+  .credits-overview { grid-template-columns: 1fr; }
 }
