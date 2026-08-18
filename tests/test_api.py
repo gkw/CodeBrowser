@@ -235,6 +235,43 @@ class ApiTests(unittest.TestCase):
         audit = self.application.metering_audit.report()
         self.assertIn("plugin:ollama-compatible", audit["summary"]["byProvider"])
 
+    def test_deep_reading_includes_numbered_target_and_bounded_related_source(self) -> None:
+        (self.root / "sample.py").write_text(
+            "from helper import normalize\n\ndef run(value):\n    return normalize(value)\n",
+            encoding="utf-8",
+        )
+        (self.root / "helper.py").write_text(
+            "def normalize(value):\n    return str(value).strip()\n",
+            encoding="utf-8",
+        )
+        self.application.provider_plugin_id = "ollama-compatible"
+        connection = http.client.HTTPConnection(*self.application.server_address, timeout=3)
+        payload = json.dumps({
+            "path": "sample.py", "mode": "deep", "model": "third-party-model", "language": "en",
+        }).encode()
+        with (
+            patch.object(server.ProviderPluginClient, "list_models", return_value=["third-party-model"]),
+            patch.object(server.ProviderPluginClient, "infer", return_value={
+                "content": "Deep reading", "usage": {"promptTokens": 20, "outputTokens": 5},
+            }) as infer,
+        ):
+            connection.request("POST", "/api/analyze", body=payload, headers={
+                "Content-Type": "application/json",
+                server.POST_REQUEST_HEADER: server.POST_REQUEST_HEADER_VALUE,
+            })
+            response = connection.getresponse()
+            response.read()
+        connection.close()
+        self.assertEqual(response.status, 200)
+        prompt = infer.call_args.kwargs["messages"][-1]["content"]
+        self.assertIn("Reading checkpoints", prompt)
+        self.assertIn("Evidence table", prompt)
+        self.assertIn("1 | from helper import normalize", prompt)
+        self.assertIn("Related source: helper.py", prompt)
+        self.assertIn("1 | def normalize(value):", prompt)
+
+    def test_project_summary_requests_typed_relationships(self) -> None:
+        self.application.provider_plugin_id = "ollama-compatible"
         project_payload = json.dumps({
             "path": "", "root": str(self.root), "mode": "summary",
             "model": "third-party-model", "language": "ja",
@@ -290,6 +327,8 @@ class ApiTests(unittest.TestCase):
         self.assertIn("obsidian-graph", app_javascript)
         self.assertIn("sourceType", app_javascript)
         self.assertIn("Code knowledge graph", app_javascript)
+        self.assertIn("deepActionLabel", app_javascript)
+        self.assertIn("runDeepReading", app_javascript)
         connection.close()
 
     def test_explorer_resizer_is_in_app_shell(self) -> None:

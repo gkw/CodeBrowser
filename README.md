@@ -72,7 +72,7 @@ Code Browser does not provide user authentication. Do not use internet port forw
 - Pinned projects with actions for opening, structure summaries, improvement reviews, Loop, path copying, and unpinning
 - Project-structure summaries from the context menu or mobile overflow menu
 - Resizable Explorer and Ollama Assistant panels with the selected widths saved locally
-- File summaries, detailed explanations, and reviews directly from the file context menu
+- File summaries, detailed explanations, deep code readings, and reviews directly from the file context menu
 - Folder-level structure summaries
 - Whole-project improvement reviews using up to three models
 - `Loop ×3` for as many as three rounds of multi-model analysis, consolidation, safe edits, and tests
@@ -96,6 +96,7 @@ Code Browser does not provide user authentication. Do not use internet port forw
 - Analysis of an entire file or a source selection
 - Read-only PDF text extraction, display, questions, explanations, and summaries with page markers
 - Obsidian-style code knowledge graphs in file and project summaries, with typed and clickable file, function, class, UI, data, and external nodes
+- Evidence-led Deep Read mode that traces execution, state, failure boundaries, and related source excerpts with clickable `path:line` citations
 - Streaming Ollama responses and model selection
 - Out-of-process Provider Plugin SDK with an Ollama-compatible BYOK reference plugin
 - Direct Markdown export with metadata
@@ -140,6 +141,10 @@ sudo apt-get install poppler-utils
 Alternatively, install `pypdf` in the Python environment used to launch Code Browser.
 
 Each new file or project summary asks the selected model for a compact, evidence-based relationship map. Code Browser renders it locally as an Obsidian-style force-directed SVG knowledge graph without loading an external diagram library. Nodes are typed as files, functions, classes, UI elements, data, external dependencies, or other symbols; highly connected nodes are visually emphasized. Navigable nodes use the same source-navigation behavior as references in the written response. Existing cached summaries are bypassed through a cache-version change; rerun a summary to generate the new graph.
+
+## Deep code reading
+
+Choose **Deep Read** for an open file, or select it from the file context menu. Code Browser sends the numbered target plus a bounded inventory and up to eight locally relevant source excerpts in one provider request. The response is asked to trace entry points, execution, state and data flow, cross-file contracts, and failure or security boundaries; material claims must cite an exact `path:line` and identify whether they are facts, inferences, or unknowns. The related-file selection is deterministic and bounded to 35,000 characters, and the response must state that it does not represent a complete-project audit.
 
 Code Browser sends Ollama a file tree limited to four levels and 1,200 entries, plus selected metadata files such as `README`, `package.json`, `pyproject.toml`, and `go.mod`. It does not send the entire source tree or the contents of `.env`. Results are cached for the current browser session to avoid duplicate model requests and can be exported as Markdown or PDF.
 

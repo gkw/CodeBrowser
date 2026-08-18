@@ -47,14 +47,15 @@ const translations = {
     openFolder: 'フォルダを開く', filter: 'ファイルを絞り込み', noFile: 'ファイルを選択',
     chooseFile: 'プロジェクトからファイルを選択してください', emptyTitle: 'コードを選んで、理解する',
     emptyDescription: '左のファイルツリーからソースコードを開くと、要約や詳しい解説を Ollama に依頼できます。',
-    fileSearch: 'ファイル検索', summary: '要約', explain: '詳しく解説', review: 'レビュー',
+    fileSearch: 'ファイル検索', summary: '要約', explain: '詳しく解説', deep: '深く読む', review: 'レビュー',
     explorerResize: 'EXPLORERの幅を変更',
     summaryTooltip: '全体の役割、構成、主要処理を短時間で把握します',
     explainTooltip: '処理の流れ、関数、データの動きを詳しく説明します',
+    deepTooltip: '関連ファイルと行番号を追い、事実・推論・不明を分けて深く読みます',
     reviewTooltip: 'バグ、セキュリティ、性能、保守性の問題を評価します',
     improve: '改善点',
-    selectionFull: 'ファイル全体を解析します', question: 'このコードについて質問…',
-    generateSummary: '要約を生成', generateExplain: '詳しい解説を生成', runReview: 'レビューを実行',
+    selectionFull: 'ファイル全体を解析します', deepContextNote: '関連ソースの抜粋を最大8件追加します', question: 'このコードについて質問…',
+    generateSummary: '要約を生成', generateExplain: '詳しい解説を生成', runDeepReading: 'ディープ読解を実行', runReview: 'レビューを実行',
     runImprovement: '3モデルで改善点を検証', improvementStarting: n => `${n}モデルで改善点を同時検証中…`,
     improvementAlreadyRunning: '改善点の複数モデル検証はすでに実行中です',
     improvementComplete: (done, tried) => `${tried}モデルを検証し、${done}モデルの結果を取得しました`,
@@ -122,14 +123,15 @@ const translations = {
     openFolder: 'Open folder', filter: 'Filter files', noFile: 'Select a file',
     chooseFile: 'Select a file from the project', emptyTitle: 'Select code. Understand it.',
     emptyDescription: 'Open source code from the file tree, then ask Ollama to summarize or explain it.',
-    fileSearch: 'File search', summary: 'Summary', explain: 'Explain', review: 'Review',
+    fileSearch: 'File search', summary: 'Summary', explain: 'Explain', deep: 'Deep Read', review: 'Review',
     explorerResize: 'Resize EXPLORER',
     summaryTooltip: 'Quickly understand the overall purpose, structure, and main behavior',
     explainTooltip: 'Learn the control flow, functions, and movement of data in detail',
+    deepTooltip: 'Trace related files and exact lines while separating facts, inferences, and unknowns',
     reviewTooltip: 'Evaluate bugs, security, performance, and maintainability risks',
     improve: 'Improvements',
-    selectionFull: 'Analyzing the entire file', question: 'Ask about this code…',
-    generateSummary: 'Generate summary', generateExplain: 'Generate explanation', runReview: 'Run review',
+    selectionFull: 'Analyzing the entire file', deepContextNote: 'Adds excerpts from up to 8 related source files', question: 'Ask about this code…',
+    generateSummary: 'Generate summary', generateExplain: 'Generate explanation', runDeepReading: 'Start deep reading', runReview: 'Run review',
     runImprovement: 'Verify with 3 models', improvementStarting: n => `Checking improvements with ${n} models…`,
     improvementAlreadyRunning: 'A multi-model improvement check is already running',
     improvementComplete: (done, tried) => `Checked ${tried} models and received ${done} results`,
@@ -335,9 +337,11 @@ function applyLanguage() {
   $('#explorerResizer').setAttribute('aria-label', t('explorerResize'));
   $('#summaryActionLabel').textContent = t('summary');
   $('#explainActionLabel').textContent = t('explain');
+  $('#deepActionLabel').textContent = t('deep');
   $('#reviewActionLabel').textContent = t('review');
   $('[data-mode="summary"]').title = t('summaryTooltip');
   $('[data-mode="explain"]').title = t('explainTooltip');
+  $('[data-mode="deep"]').title = t('deepTooltip');
   $('[data-mode="review"]').title = t('reviewTooltip');
   $('#improveActionLabel').textContent = t('improve');
   $('#questionInput').placeholder = t('question');
@@ -399,12 +403,13 @@ function applyLanguage() {
 }
 
 function updateAnalyzeLabel() {
-  $('#analyzeLabel').textContent = {summary: t('generateSummary'), explain: t('generateExplain'), review: t('runReview'), improve: t('runImprovement')}[state.mode];
+  $('#analyzeLabel').textContent = {summary: t('generateSummary'), explain: t('generateExplain'), deep: t('runDeepReading'), review: t('runReview'), improve: t('runImprovement')}[state.mode];
 }
 
 function updateSelectionNote() {
   const selected = getSelectedCode();
-  $('#selectionNote').textContent = selected ? t('selectedLines', selected.split('\n').length) : t('selectionFull');
+  const scope = selected ? t('selectedLines', selected.split('\n').length) : t('selectionFull');
+  $('#selectionNote').textContent = state.mode === 'deep' ? `${scope} · ${t('deepContextNote')}` : scope;
 }
 
 function updateParentButton() {
@@ -430,7 +435,7 @@ function toggleAssistantFullscreen(force) {
 }
 
 function analysisModeLabel(mode) {
-  return {project: t('project'), 'project-improve': t('projectImprove'), 'project-consensus': t('integratedResult'), summary: t('summary'), explain: t('explain'), review: t('review'), improve: t('improve'), consensus: t('integratedResult'), ask: t('answerQuestion'), loop: t('loopSummary')}[mode] || t('codeExplanation');
+  return {project: t('project'), 'project-improve': t('projectImprove'), 'project-consensus': t('integratedResult'), summary: t('summary'), explain: t('explain'), deep: t('deep'), review: t('review'), improve: t('improve'), consensus: t('integratedResult'), ask: t('answerQuestion'), loop: t('loopSummary')}[mode] || t('codeExplanation');
 }
 
 function createAnalysisTab(mode, target, requestedModel = $('#modelSelect').value, options = {}) {
@@ -1597,6 +1602,7 @@ function showTreeContextMenu(event, item, row) {
       <div class="menu-separator"></div>
       <button role="menuitem" data-menu-action="summary"><span class="menu-icon">≡</span>${t('summary')}</button>
       <button role="menuitem" data-menu-action="explain"><span class="menu-icon">◎</span>${t('explain')}</button>
+      <button role="menuitem" data-menu-action="deep"><span class="menu-icon">⌁</span>${t('deep')}</button>
       <button role="menuitem" data-menu-action="review"><span class="menu-icon">◇</span>${t('review')}</button>
       <button role="menuitem" data-menu-action="improve"><span class="menu-icon">⇧</span>${t('improve')}</button>
     `}`;
@@ -2182,7 +2188,7 @@ function setExportEnabled(enabled) {
 }
 
 function reportTitle() {
-  const label = {project: t('project'), 'project-improve': t('projectImprove'), 'project-consensus': t('integratedResult'), summary: t('summary'), explain: t('explain'), review: t('codeReview'), improve: t('improve'), consensus: t('integratedResult'), ask: t('answerQuestion')}[state.lastMode] || t('codeExplanation');
+  const label = {project: t('project'), 'project-improve': t('projectImprove'), 'project-consensus': t('integratedResult'), summary: t('summary'), explain: t('explain'), deep: t('deep'), review: t('codeReview'), improve: t('improve'), consensus: t('integratedResult'), ask: t('answerQuestion')}[state.lastMode] || t('codeExplanation');
   return `${state.reportTarget?.name || 'code'} - ${label}`;
 }
 
@@ -2454,6 +2460,7 @@ document.querySelectorAll('.action').forEach(button => button.addEventListener('
   button.classList.add('active');
   state.mode = button.dataset.mode;
   updateAnalyzeLabel();
+  updateSelectionNote();
 }));
 $('#languageSelect').addEventListener('change', event => {
   state.language = event.target.value === 'en' ? 'en' : 'ja';
