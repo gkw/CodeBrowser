@@ -230,6 +230,8 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(frames[1]["usage"]["status"], "plugin_reported")
         file_prompt = infer.call_args.kwargs["messages"][-1]["content"]
         self.assertIn("## Points worth understanding", file_prompt)
+        self.assertIn("source_type", file_prompt)
+        self.assertIn("file, function, class, ui, data, external, and symbol", file_prompt)
         audit = self.application.metering_audit.report()
         self.assertIn("plugin:ollama-compatible", audit["summary"]["byProvider"])
 
@@ -252,6 +254,8 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(project_response.status, 200)
         project_prompt = project_infer.call_args.kwargs["messages"][-1]["content"]
         self.assertIn("## 理解しておくとよいポイント", project_prompt)
+        self.assertIn("元の種類", project_prompt)
+        self.assertIn("file、function、class、ui、data、external、symbol", project_prompt)
 
     def test_pwa_assets_are_served_from_installable_paths(self) -> None:
         connection = http.client.HTTPConnection(*self.application.server_address, timeout=3)
@@ -276,6 +280,16 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.getheader("Service-Worker-Allowed"), "/")
         self.assertIn("no-store", response.getheader("Cache-Control"))
         self.assertIn("url.pathname.startsWith('/api/')", body)
+        connection.close()
+
+        connection = http.client.HTTPConnection(*self.application.server_address, timeout=3)
+        connection.request("GET", "/static/app.js")
+        response = connection.getresponse()
+        app_javascript = response.read().decode("utf-8")
+        self.assertEqual(response.status, 200)
+        self.assertIn("obsidian-graph", app_javascript)
+        self.assertIn("sourceType", app_javascript)
+        self.assertIn("Code knowledge graph", app_javascript)
         connection.close()
 
     def test_explorer_resizer_is_in_app_shell(self) -> None:

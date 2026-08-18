@@ -1831,7 +1831,7 @@ async function analyzeProject(relativePath = '') {
   state.lastMode = 'project';
   state.reportTarget = {name: targetName, path: targetPath};
   const providerIdentity = `${$('#connectionText').textContent}:${$('#modelSelect').value}`;
-  const cacheKey = `project-summary:v4:${state.language}:${providerIdentity}:${targetPath}`;
+  const cacheKey = `project-summary:v5:${state.language}:${providerIdentity}:${targetPath}`;
   const cached = sessionStorage.getItem(cacheKey);
   if (cached && /```(?:relationship|diagram)\s*\n/i.test(cached)) {
     const cachedTab = createAnalysisTab('project', state.reportTarget);
@@ -2252,11 +2252,15 @@ function savePdf() {
   pre { padding: 4mm; border: 1px solid #d7dce2; border-radius: 2mm; background: #f7f8f9; white-space: pre-wrap; overflow-wrap: anywhere; break-inside: avoid; }
   pre code { padding: 0; background: transparent; }
   .relationship-diagram { margin: 4mm 0; overflow: hidden; border: 1px solid #d7dce2; border-radius: 2mm; break-inside: avoid; }
+  .relationship-diagram-header { display: flex; justify-content: space-between; gap: 3mm; padding: 2.5mm 3mm 0; color: #53606d; font-size: 8px; }
+  .relationship-legend { display: flex; flex-wrap: wrap; gap: 1.5mm 2.5mm; }
+  .relationship-legend span { display: inline-flex; align-items: center; gap: 1mm; }
+  .relationship-legend i { width: 1.5mm; height: 1.5mm; border-radius: 50%; background: var(--node-color); }
   .relationship-diagram svg { display: block; width: 100%; max-height: 115mm; }
   .relationship-edge { fill: none; stroke: #687786; stroke-width: 1.5; }
   .relationship-diagram marker path { fill: #687786; }
   .relationship-label { fill: #53606d; stroke: #fff; stroke-width: 5px; paint-order: stroke; font-size: 9px; }
-  .relationship-node rect { fill: #f4f7f9; stroke: #7b8997; stroke-width: 1.2; }
+  .relationship-node circle { fill: #f4f7f9; stroke: var(--node-color); stroke-width: 1.5; }
   .relationship-node text { fill: #24303c; font: 10px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
   .meta { display: grid; grid-template-columns: 26mm 1fr; gap: 1.2mm 3mm; color: #5e6672; font-size: 8.5pt; }
   .meta dt { font-weight: 700; }
@@ -2305,83 +2309,132 @@ function renderMarkdown(source) {
 }
 
 function renderRelationshipDiagram(definition) {
-  const edges = String(definition).split('\n').map(line => line.trim()).filter(Boolean).slice(0, 12).map(line => {
+  const knownTypes = new Set(['file', 'function', 'class', 'ui', 'data', 'external', 'symbol']);
+  const inferType = name => {
+    if (/\.(?:py|js|mjs|cjs|jsx|ts|tsx|go|rs|java|kt|c|h|cpp|hpp|cs|rb|php|swift|vue|svelte|sh|json|toml|ya?ml|md)$/i.test(name)) return 'file';
+    if (/\(\)$/.test(name)) return 'function';
+    if (/(?:component|view|screen|page|dialog|button|form|panel|sidebar|modal)/i.test(name)) return 'ui';
+    if (/^[A-Z][A-Za-z0-9_$]+$/.test(name)) return 'class';
+    return 'symbol';
+  };
+  const normalizeType = (value, name) => {
+    const type = String(value || '').trim().toLowerCase();
+    return knownTypes.has(type) ? type : inferType(name);
+  };
+  const edges = String(definition).split('\n').map(line => line.trim()).filter(Boolean).slice(0, 24).map(line => {
     const parts = line.split('|').map(part => part.trim());
-    return parts.length === 3 && parts.every(Boolean)
-      ? {source: parts[0].slice(0, 80), relation: parts[1].slice(0, 60), target: parts[2].slice(0, 80)}
-      : null;
+    if (parts.length === 5 && parts.every(Boolean)) {
+      const source = parts[0].slice(0, 80);
+      const target = parts[3].slice(0, 80);
+      return {source, sourceType: normalizeType(parts[1], source), relation: parts[2].slice(0, 60), target, targetType: normalizeType(parts[4], target)};
+    }
+    if (parts.length === 3 && parts.every(Boolean)) {
+      const source = parts[0].slice(0, 80);
+      const target = parts[2].slice(0, 80);
+      return {source, sourceType: inferType(source), relation: parts[1].slice(0, 60), target, targetType: inferType(target)};
+    }
+    return null;
   }).filter(Boolean);
   if (!edges.length) return `<pre><code>${escapeHtml(definition)}</code></pre>`;
 
-  const nodes = [...new Set(edges.flatMap(edge => [edge.source, edge.target]))].slice(0, 16);
-  const allowed = new Set(nodes);
-  const usableEdges = edges.filter(edge => allowed.has(edge.source) && allowed.has(edge.target));
-  const incoming = new Map(nodes.map(node => [node, 0]));
-  const outgoing = new Map(nodes.map(node => [node, []]));
-  for (const edge of usableEdges) {
-    incoming.set(edge.target, incoming.get(edge.target) + 1);
-    outgoing.get(edge.source).push(edge.target);
+  const nodeTypes = new Map();
+  for (const edge of edges) {
+    if (!nodeTypes.has(edge.source)) nodeTypes.set(edge.source, edge.sourceType);
+    if (!nodeTypes.has(edge.target)) nodeTypes.set(edge.target, edge.targetType);
   }
-  const levels = new Map(nodes.map(node => [node, 0]));
-  const queue = nodes.filter(node => incoming.get(node) === 0);
-  const visited = new Set();
-  while (queue.length) {
-    const node = queue.shift();
-    if (visited.has(node)) continue;
-    visited.add(node);
-    for (const target of outgoing.get(node)) {
-      levels.set(target, Math.max(levels.get(target), levels.get(node) + 1));
-      incoming.set(target, incoming.get(target) - 1);
-      if (incoming.get(target) === 0) queue.push(target);
+  const nodeNames = [...nodeTypes.keys()].slice(0, 20);
+  const allowed = new Set(nodeNames);
+  const usableEdges = edges.filter(edge => allowed.has(edge.source) && allowed.has(edge.target));
+  const degrees = new Map(nodeNames.map(node => [node, 0]));
+  for (const edge of usableEdges) {
+    degrees.set(edge.source, degrees.get(edge.source) + 1);
+    degrees.set(edge.target, degrees.get(edge.target) + 1);
+  }
+
+  const width = 760;
+  const height = Math.max(330, Math.min(500, 280 + nodeNames.length * 10));
+  const hash = value => {
+    let result = 2166136261;
+    for (const character of value) result = Math.imul(result ^ character.charCodeAt(0), 16777619) >>> 0;
+    return result;
+  };
+  const positions = new Map(nodeNames.map((node, index) => {
+    const angle = ((hash(node) % 360) / 180) * Math.PI;
+    const radius = 55 + (index % 5) * 28;
+    return [node, {x: width / 2 + Math.cos(angle) * radius, y: height / 2 + Math.sin(angle) * radius, vx: 0, vy: 0}];
+  }));
+  const hub = [...nodeNames].sort((a, b) => degrees.get(b) - degrees.get(a))[0];
+  if (hub) Object.assign(positions.get(hub), {x: width / 2, y: height / 2});
+
+  for (let iteration = 0; iteration < 180; iteration += 1) {
+    for (let left = 0; left < nodeNames.length; left += 1) {
+      for (let right = left + 1; right < nodeNames.length; right += 1) {
+        const a = positions.get(nodeNames[left]);
+        const b = positions.get(nodeNames[right]);
+        let dx = b.x - a.x;
+        let dy = b.y - a.y;
+        const distanceSquared = Math.max(64, dx * dx + dy * dy);
+        const distance = Math.sqrt(distanceSquared);
+        dx /= distance;
+        dy /= distance;
+        const force = 4200 / distanceSquared;
+        a.vx -= dx * force;
+        a.vy -= dy * force;
+        b.vx += dx * force;
+        b.vy += dy * force;
+      }
+    }
+    for (const edge of usableEdges) {
+      const source = positions.get(edge.source);
+      const target = positions.get(edge.target);
+      const dx = target.x - source.x;
+      const dy = target.y - source.y;
+      const distance = Math.max(1, Math.sqrt(dx * dx + dy * dy));
+      const force = (distance - 125) * 0.0045;
+      source.vx += (dx / distance) * force;
+      source.vy += (dy / distance) * force;
+      target.vx -= (dx / distance) * force;
+      target.vy -= (dy / distance) * force;
+    }
+    for (const node of nodeNames) {
+      const point = positions.get(node);
+      point.vx += (width / 2 - point.x) * 0.0018;
+      point.vy += (height / 2 - point.y) * 0.0018;
+      point.vx *= 0.82;
+      point.vy *= 0.82;
+      point.x = Math.min(width - 105, Math.max(105, point.x + Math.max(-7, Math.min(7, point.vx))));
+      point.y = Math.min(height - 34, Math.max(34, point.y + Math.max(-7, Math.min(7, point.vy))));
     }
   }
-  const unresolved = nodes.filter(node => !visited.has(node));
-  unresolved.forEach((node, index) => levels.set(node, index % Math.min(3, Math.max(1, unresolved.length))));
-  const maximumLevel = Math.min(4, Math.max(...levels.values(), 0));
-  for (const node of nodes) levels.set(node, Math.min(levels.get(node), maximumLevel));
-  const columns = Array.from({length: maximumLevel + 1}, () => []);
-  nodes.forEach(node => columns[levels.get(node)].push(node));
-
-  const boxWidth = 180;
-  const boxHeight = 44;
-  const columnGap = 115;
-  const rowGap = 34;
-  const padding = 24;
-  const width = Math.max(420, padding * 2 + columns.length * boxWidth + Math.max(0, columns.length - 1) * columnGap);
-  const largestColumn = Math.max(...columns.map(column => column.length), 1);
-  const height = Math.max(150, padding * 2 + largestColumn * boxHeight + Math.max(0, largestColumn - 1) * rowGap);
-  const positions = new Map();
-  columns.forEach((column, columnIndex) => {
-    const contentHeight = column.length * boxHeight + Math.max(0, column.length - 1) * rowGap;
-    const startY = (height - contentHeight) / 2;
-    column.forEach((node, rowIndex) => positions.set(node, {
-      x: padding + columnIndex * (boxWidth + columnGap),
-      y: startY + rowIndex * (boxHeight + rowGap),
-    }));
-  });
 
   const markerId = `relationship-arrow-${++relationshipDiagramSequence}`;
   const edgeMarkup = usableEdges.map(edge => {
     const source = positions.get(edge.source);
     const target = positions.get(edge.target);
-    const startX = source.x + boxWidth;
-    const startY = source.y + boxHeight / 2;
-    const endX = target.x;
-    const endY = target.y + boxHeight / 2;
-    const control = Math.max(35, Math.abs(endX - startX) / 2);
-    const path = `M ${startX} ${startY} C ${startX + control} ${startY}, ${endX - control} ${endY}, ${endX} ${endY}`;
-    const labelX = (startX + endX) / 2;
-    const labelY = (startY + endY) / 2 - 7;
-    return `<path class="relationship-edge" d="${path}" marker-end="url(#${markerId})"></path><text class="relationship-label" x="${labelX}" y="${labelY}" text-anchor="middle">${escapeHtml(edge.relation)}</text>`;
+    const labelX = (source.x + target.x) / 2;
+    const labelY = (source.y + target.y) / 2 - 5;
+    return `<g class="relationship-edge-group"><line class="relationship-edge" x1="${source.x.toFixed(1)}" y1="${source.y.toFixed(1)}" x2="${target.x.toFixed(1)}" y2="${target.y.toFixed(1)}" marker-end="url(#${markerId})"></line><text class="relationship-label" x="${labelX.toFixed(1)}" y="${labelY.toFixed(1)}" text-anchor="middle">${escapeHtml(edge.relation)}</text><title>${escapeHtml(`${edge.source} — ${edge.relation} → ${edge.target}`)}</title></g>`;
   }).join('');
-  const nodeMarkup = nodes.map(node => {
+  const colors = {file: '#7eb6ff', function: '#c5f25f', class: '#c59cff', ui: '#ff9f6e', data: '#5fd2c5', external: '#a7aeba', symbol: '#d9dee7'};
+  const nodeMarkup = nodeNames.map(node => {
     const position = positions.get(node);
-    const reference = /(?:\.[A-Za-z0-9]+(?:[:#]\d+)?$|\(\)$)/.test(node) ? ` data-code-reference="${escapeHtml(node)}" role="link" tabindex="0"` : '';
-    const label = node.length > 28 ? `${node.slice(0, 27)}…` : node;
-    return `<g class="relationship-node" transform="translate(${position.x} ${position.y})"${reference}><rect width="${boxWidth}" height="${boxHeight}" rx="8"></rect><text x="${boxWidth / 2}" y="${boxHeight / 2 + 4}" text-anchor="middle">${escapeHtml(label)}</text><title>${escapeHtml(node)}</title></g>`;
+    const type = nodeTypes.get(node) || 'symbol';
+    const radius = Math.min(12, 6 + degrees.get(node) * 1.25);
+    const reference = type !== 'external' && type !== 'data' ? ` data-code-reference="${escapeHtml(node)}" role="link" tabindex="0"` : '';
+    const label = node.length > 30 ? `${node.slice(0, 29)}…` : node;
+    const rightSide = position.x < width - 175;
+    const textX = rightSide ? radius + 6 : -radius - 6;
+    const anchor = rightSide ? 'start' : 'end';
+    return `<g class="relationship-node" data-node-type="${type}" transform="translate(${position.x.toFixed(1)} ${position.y.toFixed(1)})" style="--node-color:${colors[type]}"${reference}><circle r="${radius.toFixed(1)}"></circle><text x="${textX.toFixed(1)}" y="4" text-anchor="${anchor}">${escapeHtml(label)}</text><title>${escapeHtml(`${node} · ${type}`)}</title></g>`;
   }).join('');
   const accessibleLabel = usableEdges.map(edge => `${edge.source} ${edge.relation} ${edge.target}`).join('; ');
-  return `<div class="relationship-diagram"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(accessibleLabel)}"><defs><marker id="${markerId}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z"></path></marker></defs>${edgeMarkup}${nodeMarkup}</svg></div>`;
+  const typeLabels = state.language === 'en'
+    ? {file: 'File', function: 'Function', class: 'Class', ui: 'UI', data: 'Data', external: 'External', symbol: 'Symbol'}
+    : {file: 'ファイル', function: '関数', class: 'クラス', ui: 'UI', data: 'データ', external: '外部', symbol: 'シンボル'};
+  const visibleTypes = [...new Set(nodeNames.map(node => nodeTypes.get(node) || 'symbol'))];
+  const legend = visibleTypes.map(type => `<span><i style="--node-color:${colors[type]}"></i>${escapeHtml(typeLabels[type])}</span>`).join('');
+  const graphTitle = state.language === 'en' ? 'Code knowledge graph' : 'コード知識グラフ';
+  return `<div class="relationship-diagram obsidian-graph"><div class="relationship-diagram-header"><strong>${graphTitle}</strong><div class="relationship-legend">${legend}</div></div><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(accessibleLabel)}"><defs><marker id="${markerId}" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z"></path></marker></defs>${edgeMarkup}${nodeMarkup}</svg></div>`;
 }
 
 function applyFilter() {

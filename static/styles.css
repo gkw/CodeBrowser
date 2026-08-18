@@ -173,17 +173,23 @@ body.assistant-is-fullscreen .explorer-resizer, body.assistant-is-fullscreen .as
 .answer pre { overflow: auto; background: #0c0e11; border: 1px solid var(--line); border-radius: 7px; padding: 10px; }
 .answer pre code { padding: 0; background: transparent; color: #cad1dc; }
 .answer ul, .answer ol { padding-left: 20px; }
-.relationship-diagram { margin: 10px 0 16px; overflow: auto; border: 1px solid #303741; border-radius: 9px; background: radial-gradient(circle at 50% 0, rgba(126,182,255,.08), transparent 55%), #0c0f13; }
-.relationship-diagram svg { display: block; width: 100%; min-width: 520px; max-height: 520px; }
-.relationship-edge { fill: none; stroke: #667586; stroke-width: 1.5; }
+.relationship-diagram { margin: 10px 0 16px; overflow: auto; border: 1px solid #303741; border-radius: 9px; background: radial-gradient(circle at 50% 42%, rgba(126,182,255,.09), transparent 48%), radial-gradient(circle at 15% 15%, rgba(197,242,95,.05), transparent 32%), #0a0d11; }
+.relationship-diagram-header { position: sticky; left: 0; z-index: 2; min-width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px 0; color: #aeb8c5; font-size: 10px; }
+.relationship-legend { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px 8px; color: #747f8d; font-size: 8px; font-weight: 400; }
+.relationship-legend span { display: inline-flex; align-items: center; gap: 4px; }
+.relationship-legend i { width: 6px; height: 6px; border-radius: 50%; background: var(--node-color); box-shadow: 0 0 6px var(--node-color); }
+.relationship-diagram svg { display: block; width: 100%; min-width: 620px; max-height: 520px; }
+.relationship-edge { fill: none; stroke: #4d5b6a; stroke-width: 1.15; opacity: .74; }
+.relationship-edge-group:hover .relationship-edge { stroke: #90a2b5; opacity: 1; }
 .relationship-diagram marker path { fill: #8fa1b4; }
-.relationship-label { fill: #9aa8b8; stroke: #0c0f13; stroke-width: 5px; paint-order: stroke; font-size: 9px; }
+.relationship-label { fill: #7f8d9d; stroke: #0a0d11; stroke-width: 4px; paint-order: stroke; font-size: 8px; opacity: .78; }
+.relationship-edge-group:hover .relationship-label { fill: #c7d1dc; opacity: 1; }
 .relationship-node { cursor: default; }
 .relationship-node[data-code-reference] { cursor: pointer; }
-.relationship-node rect { fill: #171c22; stroke: #46515f; stroke-width: 1.2; }
-.relationship-node text { fill: #d9e1eb; font: 10px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-.relationship-node[data-code-reference]:hover rect, .relationship-node[data-code-reference]:focus rect { outline: none; fill: rgba(197,242,95,.12); stroke: var(--accent); }
-.relationship-node[data-code-reference]:hover text, .relationship-node[data-code-reference]:focus text { fill: var(--accent); }
+.relationship-node circle { fill: #151b21; fill: color-mix(in srgb, var(--node-color) 22%, #10151b); stroke: var(--node-color); stroke-width: 1.5; filter: drop-shadow(0 0 5px color-mix(in srgb, var(--node-color) 55%, transparent)); }
+.relationship-node text { fill: #cfd7e1; font: 9px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; paint-order: stroke; stroke: #0a0d11; stroke-width: 3px; }
+.relationship-node[data-code-reference]:hover circle, .relationship-node[data-code-reference]:focus circle { outline: none; fill: var(--node-color); stroke: #fff; stroke-width: 2; }
+.relationship-node[data-code-reference]:hover text, .relationship-node[data-code-reference]:focus text { fill: #fff; }
 .export-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 0 10px 8px; }
 .export-row button { height: 32px; border: 1px solid var(--line); border-radius: 6px; background: #171a20; color: #aeb6c1; cursor: pointer; font-size: 10px; }
 .export-row button:not(:disabled):hover { border-color: rgba(197,242,95,.45); color: var(--accent); background: var(--accent-dim); }

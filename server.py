@@ -953,9 +953,10 @@ class RequestHandler(BaseHTTPRequestHandler):
                 "## Points worth understanding\n## Relationship diagram\n"
                 "Under Points worth understanding, list 3 to 7 concrete concepts, control-flow decisions, state boundaries, or architectural assumptions that a reader should verify in the source. "
                 "Tie each point to an exact file or symbol when the supplied structure supports it, and do not invent implementation details.\n"
-                "Under Relationship diagram, include one fenced `relationship` block with 3 to 10 evidence-based edges in this exact format:\n"
-                "```relationship\nsource file or symbol | short relationship | target file or symbol\n```\n"
-                "Use one edge per line, exact file or symbol names when available, and do not use the pipe character inside a field. "
+                "Under Relationship diagram, include one fenced `relationship` block with 4 to 16 evidence-based edges in this exact format:\n"
+                "```relationship\nsource | source_type | short relationship | target | target_type\n```\n"
+                "Allowed node types are file, function, class, ui, data, external, and symbol. Prefer file structure for architecture; include exact functions and classes when supported; include UI nodes only when the supplied metadata identifies a real screen or component. "
+                "Use one edge per line, exact names when available, and do not use the pipe character inside a field. "
                 "Do not present guesses as facts. State when the structure is insufficient to determine something.\n\n"
                 f"{snapshot}"
             )
@@ -971,9 +972,10 @@ class RequestHandler(BaseHTTPRequestHandler):
                 "## 理解しておくとよいポイント\n## 関係図\n"
                 "「理解しておくとよいポイント」には、読者がソースで確認すべき概念、処理分岐、状態の境界、設計上の前提を3〜7点挙げてください。"
                 "構成から根拠を示せる場合は正確なファイル名やシンボル名に結び付け、実装の詳細を推測で作らないでください。\n"
-                "関係図には、根拠のある関係を3〜10本、次の形式の`relationship`コードブロックで記述してください。\n"
-                "```relationship\n元のファイルまたはシンボル | 短い関係 | 先のファイルまたはシンボル\n```\n"
-                "1行に1関係とし、可能なら正確なファイル名・シンボル名を使い、各項目内では縦線を使わないでください。"
+                "関係図には、根拠のある関係を4〜16本、次の形式の`relationship`コードブロックで記述してください。\n"
+                "```relationship\n元ノード | 元の種類 | 短い関係 | 先ノード | 先の種類\n```\n"
+                "種類はfile、function、class、ui、data、external、symbolのいずれかです。アーキテクチャにはファイル構成を優先し、根拠がある場合は正確な関数・クラスを含め、UIは実在する画面やコンポーネントを構成から特定できる場合だけ含めてください。"
+                "1行に1関係とし、可能なら正確な名前を使い、各項目内では縦線を使わないでください。"
                 "不明な項目は推測で断定せず「構成からは判断できない」と記載してください。\n\n"
                 f"{snapshot}"
             )
@@ -1219,14 +1221,14 @@ class RequestHandler(BaseHTTPRequestHandler):
 
         is_pdf = document is not None
         instructions = ({
-            "summary": "Summarize the code's purpose, main structure, inputs, outputs, and dependencies concisely. Include a '## Points worth understanding' section with 3 to 7 concrete concepts, control-flow decisions, state transitions, invariants, or failure boundaries that a reader should verify in this source. Tie every point to an exact function, class, variable, or code region and explain why it matters; avoid generic programming advice. End with a '## Relationship diagram' section containing 3 to 10 evidence-based edges in a fenced `relationship` block. Use exactly one edge per line in this format: source file or symbol | short relationship | target file or symbol. Use exact names and do not use the pipe character inside a field.",
+            "summary": "Summarize the code's purpose, main structure, inputs, outputs, and dependencies concisely. Include a '## Points worth understanding' section with 3 to 7 concrete concepts, control-flow decisions, state transitions, invariants, or failure boundaries that a reader should verify in this source. Tie every point to an exact function, class, variable, or code region and explain why it matters; avoid generic programming advice. End with a '## Relationship diagram' section containing 4 to 16 evidence-based edges in a fenced `relationship` block. Use exactly one edge per line in this format: source | source_type | short relationship | target | target_type. Allowed node types are file, function, class, ui, data, external, and symbol. Prefer exact functions and classes; include UI nodes only when the source defines a real interface element or interaction. Use exact names, do not use the pipe character inside a field, and do not invent missing relationships.",
             "explain": "Explain the execution flow, important functions and classes, and data movement in clear English.",
             "review": "Review the code for possible bugs, security, performance, and maintainability. Give evidence and improvements.",
             "improve": "Focus exclusively on concrete improvements. Prioritize them by impact, explain the evidence and expected benefit, and include a practical implementation suggestion. Avoid generic advice and explicitly say when no change is warranted.",
             "consensus": "Act as the lead reviewer. Combine the model reports below into one decision-oriented result with these headings: Shared findings, Disagreements and uncertainty, Priority order, Recommended implementation plan. Deduplicate equivalent suggestions, distinguish model consensus from single-model claims, and do not invent findings absent from the reports.\n\nMODEL REPORTS:\n" + str(payload.get("question", ""))[:120000],
             "ask": str(payload.get("question", "Explain this code.")),
         } if language == "en" else {
-            "summary": "コードの目的、主要な構成、入出力、依存関係を簡潔に要約してください。「## 理解しておくとよいポイント」を追加し、このソースを読む人が確認すべき概念、処理分岐、状態遷移、不変条件、失敗時の境界を3〜7点示してください。各項目を正確な関数、クラス、変数、またはコード箇所に結び付け、なぜ重要かを説明し、一般的なプログラミング論は避けてください。最後に「## 関係図」を追加し、根拠のある関係を3〜10本、`relationship`コードブロック内へ1行ずつ「元のファイルまたはシンボル | 短い関係 | 先のファイルまたはシンボル」の形式で記述してください。正確な名前を使い、各項目内では縦線を使わないでください。",
+            "summary": "コードの目的、主要な構成、入出力、依存関係を簡潔に要約してください。「## 理解しておくとよいポイント」を追加し、このソースを読む人が確認すべき概念、処理分岐、状態遷移、不変条件、失敗時の境界を3〜7点示してください。各項目を正確な関数、クラス、変数、またはコード箇所に結び付け、なぜ重要かを説明し、一般的なプログラミング論は避けてください。最後に「## 関係図」を追加し、根拠のある関係を4〜16本、`relationship`コードブロック内へ1行ずつ「元ノード | 元の種類 | 短い関係 | 先ノード | 先の種類」の形式で記述してください。種類はfile、function、class、ui、data、external、symbolのいずれかです。正確な関数・クラスを優先し、UIノードはソースに実在する画面要素や操作だけを含めてください。正確な名前を使い、各項目内では縦線を使わず、不明な関係を創作しないでください。",
             "explain": "処理の流れを上から順に、重要な関数・クラス・データの動きを初心者にも分かる日本語で説明してください。",
             "review": "コードレビューを行い、バグ候補、セキュリティ、性能、保守性の順で、根拠と改善案を示してください。問題がなければ明記してください。",
             "improve": "具体的な改善点だけに特化してください。影響度順に、根拠、期待効果、実装方法を示してください。一般論は避け、変更不要な箇所はその旨を明記してください。",

@@ -95,7 +95,7 @@ Code Browser does not provide user authentication. Do not use internet port forw
 - File-name filtering with `⌘K` or `Ctrl+K`
 - Analysis of an entire file or a source selection
 - Read-only PDF text extraction, display, questions, explanations, and summaries with page markers
-- Lightweight relationship diagrams in file and project summaries, with clickable file and symbol nodes
+- Obsidian-style code knowledge graphs in file and project summaries, with typed and clickable file, function, class, UI, data, and external nodes
 - Streaming Ollama responses and model selection
 - Out-of-process Provider Plugin SDK with an Ollama-compatible BYOK reference plugin
 - Direct Markdown export with metadata
@@ -139,7 +139,7 @@ sudo apt-get install poppler-utils
 
 Alternatively, install `pypdf` in the Python environment used to launch Code Browser.
 
-Each new file or project summary asks the selected model for a compact, evidence-based relationship map. Code Browser renders the result locally as an SVG graph without loading an external diagram library. File and symbol nodes use the same source-navigation behavior as references in the written response. Existing cached summaries are left unchanged; rerun a summary to generate its diagram.
+Each new file or project summary asks the selected model for a compact, evidence-based relationship map. Code Browser renders it locally as an Obsidian-style force-directed SVG knowledge graph without loading an external diagram library. Nodes are typed as files, functions, classes, UI elements, data, external dependencies, or other symbols; highly connected nodes are visually emphasized. Navigable nodes use the same source-navigation behavior as references in the written response. Existing cached summaries are bypassed through a cache-version change; rerun a summary to generate the new graph.
 
 Code Browser sends Ollama a file tree limited to four levels and 1,200 entries, plus selected metadata files such as `README`, `package.json`, `pyproject.toml`, and `go.mod`. It does not send the entire source tree or the contents of `.env`. Results are cached for the current browser session to avoid duplicate model requests and can be exported as Markdown or PDF.
 
