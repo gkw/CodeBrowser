@@ -36,6 +36,17 @@ Open <http://127.0.0.1:8092> in a browser. To use a different port:
 PORT=9000 ./start.sh /path/to/your/project
 ```
 
+### macOS launcher
+
+Create a native macOS Automator-style launcher with the existing Code Browser icon:
+
+```bash
+./scripts/install_mac_app.sh
+open "$HOME/Applications/Code Browser.app"
+```
+
+The launcher asks for a project folder, reuses the existing `com.gkworks.codebrowser` LaunchAgent when available, and falls back to starting the local companion. It then opens `http://127.0.0.1:8092/` in the default browser. The app contains no Ollama key or other secret.
+
 The main application uses only the Python 3 standard library. PDF text extraction additionally uses Poppler's `pdftotext` when available, with the Python `pypdf` package as an optional fallback.
 
 After startup, select **Open Folder** in the header to switch to another directory. Enter an absolute path to a local directory. After the switch, the application continues to prevent access outside the newly selected root.
